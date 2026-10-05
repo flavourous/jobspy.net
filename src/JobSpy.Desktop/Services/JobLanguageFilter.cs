@@ -30,6 +30,27 @@ internal static class JobLanguageFilter
         }
 
         var firstLanguageMention = LanguageMentionPattern.Match(description);
-        return !firstLanguageMention.Success || firstLanguageMention.Groups["target"].Success;
+        if (!firstLanguageMention.Success || firstLanguageMention.Groups["target"].Success)
+        {
+            return true;
+        }
+
+        var lineStart = description.LastIndexOf('\n', firstLanguageMention.Index);
+        lineStart = lineStart < 0 ? 0 : lineStart + 1;
+        var lineEnd = description.IndexOf('\n', firstLanguageMention.Index);
+        if (lineEnd < 0)
+        {
+            lineEnd = description.Length;
+        }
+
+        foreach (Match languageMention in LanguageMentionPattern.Matches(description[lineStart..lineEnd]))
+        {
+            if (languageMention.Groups["target"].Success)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

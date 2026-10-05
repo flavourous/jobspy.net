@@ -93,7 +93,7 @@
 
             <Border Grid.Row="1" Background="White" BorderBrush="#DEE5DF" BorderThickness="1" Padding="16,13">
                 <Grid RowDefinitions="Auto,*" RowSpacing="8">
-                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto"
+                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto"
                           RowSpacing="5" VerticalAlignment="Center">
                         <StackPanel Spacing="2">
                             <TextBlock Text="Scan history" FontSize="16" FontWeight="SemiBold" Foreground="#20382E" />
@@ -111,9 +111,6 @@
                         <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding StatusMessage}"
                                    FontSize="10" Foreground="#68786F" TextTrimming="CharacterEllipsis"
                                    ToolTip.Tip="{Binding StatusMessage}" />
-                        <ProgressBar Grid.Row="2" Grid.ColumnSpan="2" Width="180" Height="3"
-                                     IsIndeterminate="{Binding IsSearching}" IsVisible="{Binding IsSearching}"
-                                     HorizontalAlignment="Left" Foreground="#799A86" />
                     </Grid>
 
                     <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
@@ -233,5 +230,77 @@
                 </Border>
             </Grid>
         </Grid>
+
+        <Border Grid.RowSpan="3" Background="#B51B2D26"
+                IsVisible="{Binding IsSearching}">
+            <Grid HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24">
+                <Border Width="960" MaxHeight="700" Background="#FFFFFF"
+                        BorderBrush="#D5DED8" BorderThickness="1" CornerRadius="6">
+                    <Grid RowDefinitions="Auto,Auto,*">
+                        <Border Background="#174B3D" Padding="20,15" CornerRadius="6,6,0,0">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="20">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="PROFILE SCAN" FontSize="10" FontWeight="Bold"
+                                               Foreground="#A7D8BD" />
+                                    <TextBlock Text="Parallel job-board searches" FontSize="20"
+                                               FontWeight="SemiBold" Foreground="White" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding ScanProgressSummary}" FontSize="13"
+                                               FontWeight="SemiBold" Foreground="White"
+                                               HorizontalAlignment="Right" />
+                                    <TextBlock Text="{Binding ResponseCountLabel}" FontSize="11"
+                                               FontWeight="SemiBold" Foreground="#F1B45A"
+                                               HorizontalAlignment="Right" />
+                                    <TextBlock Text="5 profiles · 3 boards" FontSize="10"
+                                               Foreground="#C8DDD1" HorizontalAlignment="Right" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <Grid Grid.Row="1" Margin="18,12,18,6"
+                              ColumnDefinitions="2.5*,0.8*,1.1*,1.5*,150" ColumnSpacing="10">
+                            <TextBlock Text="SEARCH PROFILE" FontSize="9" FontWeight="Bold" Foreground="#718078" />
+                            <TextBlock Grid.Column="1" Text="BOARD" FontSize="9" FontWeight="Bold" Foreground="#718078" />
+                            <TextBlock Grid.Column="2" Text="STATE" FontSize="9" FontWeight="Bold" Foreground="#718078" />
+                            <TextBlock Grid.Column="3" Text="RESULTS" FontSize="9" FontWeight="Bold" Foreground="#718078" />
+                            <TextBlock Grid.Column="4" Text="PROGRESS" FontSize="9" FontWeight="Bold" Foreground="#718078" />
+                        </Grid>
+
+                        <ScrollViewer Grid.Row="2" Margin="18,0,18,16" MaxHeight="570"
+                                      VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding ScanProgressRows}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ScanProgressRow">
+                                        <Border BorderBrush="#E5EAE6" BorderThickness="0,1,0,0"
+                                                Padding="0,8">
+                                            <Grid ColumnDefinitions="2.5*,0.8*,1.1*,1.5*,150"
+                                                  ColumnSpacing="10" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding SearchTerm}" FontSize="10"
+                                                           FontWeight="SemiBold" Foreground="#263B31"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           VerticalAlignment="Center" />
+                                                <TextBlock Grid.Column="1" Text="{Binding SiteLabel}" FontSize="10"
+                                                           Foreground="#52615A" VerticalAlignment="Center" />
+                                                <TextBlock Grid.Column="2" Text="{Binding State}" FontSize="10"
+                                                           Foreground="#52615A" TextTrimming="CharacterEllipsis"
+                                                           ToolTip.Tip="{Binding State}" VerticalAlignment="Center" />
+                                                <TextBlock Grid.Column="3" Text="{Binding Results}" FontSize="10"
+                                                           Foreground="#52615A" TextTrimming="CharacterEllipsis"
+                                                           ToolTip.Tip="{Binding Results}" VerticalAlignment="Center" />
+                                                <ProgressBar Grid.Column="4" Height="7" Minimum="0" Maximum="100"
+                                                             Value="{Binding ProgressValue}"
+                                                             IsIndeterminate="{Binding IsIndeterminate}"
+                                                             VerticalAlignment="Center" />
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
     </Grid>
 </Window>

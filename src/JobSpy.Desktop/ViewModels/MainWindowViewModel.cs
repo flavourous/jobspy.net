@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Linq;
@@ -28,15 +29,116 @@ public sealed class LocationFilterOption
     public bool IsRemote { get; }
 }
 
+public sealed class ScanProgressRow : ReactiveObject
+{
+    private string _state = "Waiting";
+    private string _results = "Waiting";
+    private bool _isIndeterminate = true;
+    private double _progressValue;
+
+    public ScanProgressRow(string searchTerm, string site)
+    {
+        SearchTerm = searchTerm;
+        Site = site;
+    }
+
+    public string SearchTerm { get; }
+
+    public string Site { get; }
+
+    public string SiteLabel => Site switch
+    {
+        "indeed" => "Indeed",
+        "linkedin" => "LinkedIn",
+        "glassdoor" => "Glassdoor",
+        _ => Site,
+    };
+
+    public string State
+    {
+        get => _state;
+        private set => this.RaiseAndSetIfChanged(ref _state, value);
+    }
+
+    public string Results
+    {
+        get => _results;
+        private set => this.RaiseAndSetIfChanged(ref _results, value);
+    }
+
+    public bool IsIndeterminate
+    {
+        get => _isIndeterminate;
+        private set => this.RaiseAndSetIfChanged(ref _isIndeterminate, value);
+    }
+
+    public double ProgressValue
+    {
+        get => _progressValue;
+        private set => this.RaiseAndSetIfChanged(ref _progressValue, value);
+    }
+
+    public bool IsFinished => State is "Complete" or "Failed";
+
+    public void Reset()
+    {
+        State = "Waiting";
+        Results = "Waiting";
+        IsIndeterminate = true;
+        ProgressValue = 0;
+        this.RaisePropertyChanged(nameof(IsFinished));
+    }
+
+    public void Apply(JobSearchProgress progress)
+    {
+        var total = progress.Total.GetValueOrDefault();
+        var hasTotal = total > 0;
+        var totalLabel = hasTotal ? $"/{total:N0}" : string.Empty;
+        IsIndeterminate = !hasTotal;
+        ProgressValue = hasTotal ? Math.Clamp(progress.Count * 100d / total, 0, 100) : 0;
+        Results = $"{progress.Count:N0}{totalLabel} results";
+
+        switch (progress.Phase.ToLowerInvariant())
+        {
+            case "searching":
+                State = "Starting";
+                Results = "Waiting for results";
+                IsIndeterminate = true;
+                ProgressValue = 0;
+                break;
+            case "reading":
+                State = "Reading";
+                break;
+            case "backoff":
+                State = $"Backoff {progress.RetryAfterSeconds.GetValueOrDefault():0.#}s";
+                break;
+            case "complete":
+                State = "Complete";
+                Results = $"{progress.Count:N0} results";
+                IsIndeterminate = false;
+                ProgressValue = 100;
+                break;
+            case "failed":
+                State = "Failed";
+                Results = progress.Error ?? "Search failed";
+                IsIndeterminate = false;
+                ProgressValue = 0;
+                break;
+        }
+
+        this.RaisePropertyChanged(nameof(IsFinished));
+    }
+}
+
 public sealed class MainWindowViewModel : ViewModelBase
 {
     private static readonly string[] SearchTerms =
     {
-        "Lead .NET Engineer",
+        "Tech Lead C#",
+        "Lead Software Engineer C#",
         "Principal Software Engineer C#",
-        "Staff Backend Engineer .NET",
-        "Distributed Systems Engineer .NET",
-        "Engineering Manager Software",
+        "Staff Software Engineer C#",
+        "Development Manager Software C#",
     };
 
     private static readonly string[] SearchSites = { "indeed", "linkedin", "glassdoor" };
@@ -44,8 +146,10 @@ public sealed class MainWindowViewModel : ViewModelBase
     private const string SearchLocation = "United Kingdom";
     private readonly IJobRepository _repository;
     private readonly IJobSearchService _searchService;
+    private readonly Dictionary<(string SearchTerm, string Site), int> _responseCounts = new();
     private string _statusMessage;
     private bool _isSearching;
+    private int _finishedSearchTasks;
     private SnapshotChartPoint? _selectedPoint;
     private JobOpportunityViewModel? _selectedJob;
     private int _resultCount;
@@ -67,6 +171,8 @@ public sealed class MainWindowViewModel : ViewModelBase
         ChartPoints = new ObservableCollection<SnapshotChartPoint>();
         Jobs = new ObservableCollection<JobOpportunityViewModel>();
         FilteredJobs = new ObservableCollection<JobOpportunityViewModel>();
+        ScanProgressRows = new ObservableCollection<ScanProgressRow>(SearchTerms
+            .SelectMany(term => SearchSites.Select(site => new ScanProgressRow(term, site))));
         LocationFilters = new ObservableCollection<LocationFilterOption>();
         SourceFilters = new ObservableCollection<LocationFilterOption>();
 
@@ -111,6 +217,8 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public ObservableCollection<JobOpportunityViewModel> FilteredJobs { get; }
 
+    public ObservableCollection<ScanProgressRow> ScanProgressRows { get; }
+
     public ObservableCollection<LocationFilterOption> LocationFilters { get; }
 
     public ObservableCollection<LocationFilterOption> SourceFilters { get; }
@@ -122,6 +230,10 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ReactiveCommand<SalaryChartRunSelection, Unit> SelectRunCommand { get; }
 
     public ReactiveCommand<ReactiveUI.Primitives.RxVoid, Unit> OpenSelectedJobCommand { get; }
+
+    public string ScanProgressSummary => $"{_finishedSearchTasks} / {ScanProgressRows.Count} tasks finished";
+
+    public string ResponseCountLabel => $"{_responseCounts.Values.Sum():N0} responses";
 
     public string SearchTermsLabel => string.Join("  ·  ", SearchTerms);
 
@@ -311,20 +423,56 @@ public sealed class MainWindowViewModel : ViewModelBase
     private async Task SearchAsync()
     {
         IsSearching = true;
+        foreach (var row in ScanProgressRows)
+        {
+            row.Reset();
+        }
+        _responseCounts.Clear();
+        _finishedSearchTasks = 0;
+        this.RaisePropertyChanged(nameof(ScanProgressSummary));
+        this.RaisePropertyChanged(nameof(ResponseCountLabel));
         StatusMessage = $"Scanning {SearchTerms.Length} role searches across {SearchSites.Length} boards...";
+        IProgress<JobSearchProgress> progress = new Progress<JobSearchProgress>(ApplySearchProgress);
         try
         {
             var result = await Task.Run(async () =>
             {
-                var found = SearchTerms
-                    .SelectMany(term => _searchService
-                        .Search(new JobSearchRequest(term, SearchLocation, SearchSites))
-                        .Select(posting =>
+                var searchTasks = SearchTerms.SelectMany(term => SearchSites.Select(site =>
+                    Task.Run(() =>
+                    {
+                        progress.Report(new JobSearchProgress("searching", site, 0, SearchTerm: term));
+                        try
                         {
-                            posting.SearchTerm = term;
-                            return posting;
-                        }))
-                    .ToList();
+                            var postings = _searchService.Search(
+                                new JobSearchRequest(term, SearchLocation, [site]),
+                                progress);
+                            foreach (var posting in postings)
+                            {
+                                posting.SearchTerm = term;
+                            }
+
+                            progress.Report(new JobSearchProgress(
+                                "complete",
+                                site,
+                                postings.Count,
+                                postings.Count,
+                                SearchTerm: term));
+                            return postings;
+                        }
+                        catch (Exception exception)
+                        {
+                            progress.Report(new JobSearchProgress(
+                                "failed",
+                                site,
+                                0,
+                                SearchTerm: term,
+                                Error: exception.GetBaseException().Message));
+                            throw;
+                        }
+                    }))).ToArray();
+                var resultSets = await Task.WhenAll(searchTasks);
+                var found = resultSets.SelectMany(postings => postings).ToList();
+
                 var snapshot = _repository.RecordScan(found, string.Join(", ", SearchTerms), DateTime.UtcNow);
                 var snapshotJobs = _repository.GetJobsForSnapshot(snapshot.Id);
                 await ResolveRelocationStatusesAsync(snapshotJobs);
@@ -346,6 +494,36 @@ public sealed class MainWindowViewModel : ViewModelBase
         finally
         {
             IsSearching = false;
+        }
+    }
+
+    private void ApplySearchProgress(JobSearchProgress progress)
+    {
+        if (progress.Phase is "reading" or "backoff" or "complete")
+        {
+            var key = (progress.SearchTerm, progress.Site);
+            if (!_responseCounts.TryGetValue(key, out var previousCount)
+                || progress.Count > previousCount)
+            {
+                _responseCounts[key] = progress.Count;
+                this.RaisePropertyChanged(nameof(ResponseCountLabel));
+            }
+        }
+
+        var row = ScanProgressRows.FirstOrDefault(candidate =>
+            string.Equals(candidate.SearchTerm, progress.SearchTerm, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(candidate.Site, progress.Site, StringComparison.OrdinalIgnoreCase));
+        if (row is null)
+        {
+            return;
+        }
+
+        var wasFinished = row.IsFinished;
+        row.Apply(progress);
+        if (!wasFinished && row.IsFinished)
+        {
+            _finishedSearchTasks++;
+            this.RaisePropertyChanged(nameof(ScanProgressSummary));
         }
     }
 

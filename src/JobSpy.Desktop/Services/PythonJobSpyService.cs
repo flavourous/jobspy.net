@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text.Json;
 using JobSpy.Desktop.Models;
 using Python.Runtime;
@@ -17,7 +16,7 @@ public sealed class PythonJobSpyService : IJobSearchService
         PropertyNameCaseInsensitive = true,
     };
 
-    public IReadOnlyList<JobPosting> Search(JobSearchRequest request)
+    public IReadOnlyList<JobPosting> Search(JobSearchRequest request, IProgress<JobSearchProgress>? progress = null)
     {
         EnsurePythonRuntime();
         using (Py.GIL())
@@ -31,13 +30,23 @@ public sealed class PythonJobSpyService : IJobSearchService
             }
 
             dynamic jobspy = jobspyModule;
+            Action<string> progressCallback = payload =>
+            {
+                var update = JsonSerializer.Deserialize<JobSearchProgress>(payload, SerializerOptions);
+                if (update is not null)
+                {
+                    progress?.Report(update with { SearchTerm = request.SearchTerm });
+                }
+            };
+            using var pythonProgressCallback = PyObject.FromManagedObject(progressCallback);
             using var jobs = (PyObject)jobspy.scrape_jobs(
                 site_name: pythonSites,
                 search_term: request.SearchTerm,
                 location: string.IsNullOrWhiteSpace(request.Location) ? null : request.Location,
                 country_indeed: "UK",
                 fetch_description: true,
-                results_wanted: 20,
+                results_wanted: 1000,
+                progress_callback: pythonProgressCallback,
                 verbose: 0);
             dynamic dataFrame = jobs;
             using var jsonResult = (PyObject)dataFrame.to_json(orient: "records", date_format: "iso");
@@ -45,7 +54,7 @@ public sealed class PythonJobSpyService : IJobSearchService
             var postings = JsonSerializer.Deserialize<List<JobPosting>>(jsonResult.As<string>(), SerializerOptions)
                 ?? new List<JobPosting>();
 
-            return postings.Where(posting => JobLanguageFilter.IsRelevant(posting.Description)).ToList();
+            return [..postings];
         }
     }
 
