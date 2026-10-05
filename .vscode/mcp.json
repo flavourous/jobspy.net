@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "xamlmcp": {
+      "type": "stdio",
+      "command": "dnx",
+      "args": ["XamlMcp.Server@1.0.0-preview.3"]
+    }
+  }
+}
