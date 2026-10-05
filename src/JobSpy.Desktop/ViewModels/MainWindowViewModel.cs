@@ -12,25 +12,6 @@ using ReactiveUI;
 
 namespace JobSpy.Desktop.ViewModels;
 
-public sealed class JobSiteOption : ReactiveObject
-{
-    private bool _isSelected;
-
-    public JobSiteOption(string name, bool isSelected)
-    {
-        Name = name;
-        _isSelected = isSelected;
-    }
-
-    public string Name { get; }
-
-    public bool IsSelected
-    {
-        get => _isSelected;
-        set => this.RaiseAndSetIfChanged(ref _isSelected, value);
-    }
-}
-
 public sealed class LocationFilterOption
 {
     public LocationFilterOption(string key, string label, bool isRemote = false)
@@ -58,6 +39,8 @@ public sealed class MainWindowViewModel : ViewModelBase
         "Engineering Manager Software",
     };
 
+    private static readonly string[] SearchSites = { "indeed", "linkedin", "glassdoor" };
+
     private const string SearchLocation = "United Kingdom";
     private readonly IJobRepository _repository;
     private readonly IJobSearchService _searchService;
@@ -70,6 +53,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     private bool _hasNoJobs;
     private bool _hasNoFilteredJobs;
     private LocationFilterOption? _selectedLocationFilter;
+    private LocationFilterOption? _selectedSourceFilter;
+    private bool _isNewTodayFilterEnabled;
     private string _medianSalaryLabel = "No salary data";
     private string _salaryCoverageLabel = "No reported GBP salaries";
     private string _capturedAtLabel = "No scan selected";
@@ -83,14 +68,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         Jobs = new ObservableCollection<JobOpportunityViewModel>();
         FilteredJobs = new ObservableCollection<JobOpportunityViewModel>();
         LocationFilters = new ObservableCollection<LocationFilterOption>();
-        Sites = new ObservableCollection<JobSiteOption>
-        {
-            new("indeed", true),
-            new("linkedin", true),
-            new("glassdoor", true),
-            new("zip_recruiter", false),
-            new("google", false),
-        };
+        SourceFilters = new ObservableCollection<LocationFilterOption>();
 
         SearchCommand = ReactiveCommand.CreateFromTask(
             async () =>
@@ -135,7 +113,7 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public ObservableCollection<LocationFilterOption> LocationFilters { get; }
 
-    public ObservableCollection<JobSiteOption> Sites { get; }
+    public ObservableCollection<LocationFilterOption> SourceFilters { get; }
 
     public ReactiveCommand<ReactiveUI.Primitives.RxVoid, Unit> SearchCommand { get; }
 
@@ -268,6 +246,44 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
     }
 
+    public LocationFilterOption? SelectedSourceFilter
+    {
+        get => _selectedSourceFilter;
+        set
+        {
+            if (_selectedSourceFilter == value)
+            {
+                return;
+            }
+
+            this.RaiseAndSetIfChanged(ref _selectedSourceFilter, value);
+            RefreshFilteredJobs();
+            if (SelectedJob is null || !FilteredJobs.Contains(SelectedJob))
+            {
+                SelectedJob = FilteredJobs.FirstOrDefault();
+            }
+        }
+    }
+
+    public bool IsNewTodayFilterEnabled
+    {
+        get => _isNewTodayFilterEnabled;
+        set
+        {
+            if (_isNewTodayFilterEnabled == value)
+            {
+                return;
+            }
+
+            this.RaiseAndSetIfChanged(ref _isNewTodayFilterEnabled, value);
+            RefreshFilteredJobs();
+            if (SelectedJob is null || !FilteredJobs.Contains(SelectedJob))
+            {
+                SelectedJob = FilteredJobs.FirstOrDefault();
+            }
+        }
+    }
+
     public string MedianSalaryLabel
     {
         get => _medianSalaryLabel;
@@ -294,22 +310,15 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     private async Task SearchAsync()
     {
-        var selectedSites = Sites.Where(site => site.IsSelected).Select(site => site.Name).ToArray();
-        if (selectedSites.Length == 0)
-        {
-            StatusMessage = "Select at least one job board.";
-            return;
-        }
-
         IsSearching = true;
-        StatusMessage = $"Scanning {SearchTerms.Length} role searches across {selectedSites.Length} boards...";
+        StatusMessage = $"Scanning {SearchTerms.Length} role searches across {SearchSites.Length} boards...";
         try
         {
             var result = await Task.Run(async () =>
             {
                 var found = SearchTerms
                     .SelectMany(term => _searchService
-                        .Search(new JobSearchRequest(term, SearchLocation, selectedSites))
+                        .Search(new JobSearchRequest(term, SearchLocation, SearchSites))
                         .Select(posting =>
                         {
                             posting.SearchTerm = term;
@@ -478,6 +487,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             SelectedJob = null;
             HasNoJobs = true;
             RefreshLocationFilters();
+            RefreshSourceFilters();
             RefreshFilteredJobs();
             return;
         }
@@ -494,6 +504,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
 
         RefreshLocationFilters();
+        RefreshSourceFilters();
         RefreshFilteredJobs();
 
         var reportedSalaries = postings
@@ -518,13 +529,18 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         FilteredJobs.Clear();
         var filter = SelectedLocationFilter;
-        foreach (var job in Jobs.Where(job => MatchesLocationFilter(job.Posting, filter)))
+        foreach (var job in Jobs.Where(job => MatchesLocationFilter(job.Posting, filter)
+            && MatchesSourceFilter(job.Posting, SelectedSourceFilter)
+            && (!IsNewTodayFilterEnabled || WasAddedToHistoryToday(job.Posting))))
         {
             FilteredJobs.Add(job);
         }
 
         HasNoFilteredJobs = Jobs.Count > 0 && FilteredJobs.Count == 0;
     }
+
+    private static bool WasAddedToHistoryToday(JobPosting posting) => posting.FirstSeenUtc != default
+        && posting.FirstSeenUtc.ToLocalTime().Date == DateTime.Today;
 
     private void RefreshLocationFilters()
     {
@@ -562,6 +578,44 @@ public sealed class MainWindowViewModel : ViewModelBase
             ?? LocationFilters.FirstOrDefault();
         this.RaisePropertyChanged(nameof(SelectedLocationFilter));
     }
+
+    private void RefreshSourceFilters()
+    {
+        var previousKey = SelectedSourceFilter?.Key;
+        var sourceOptions = Jobs
+            .Select(job => job.Posting.Site?.Trim())
+            .Where(site => !string.IsNullOrWhiteSpace(site))
+            .GroupBy(site => site!, StringComparer.OrdinalIgnoreCase)
+            .Select(group => (Key: group.Key, Count: group.Count()))
+            .OrderByDescending(source => source.Count)
+            .ThenBy(source => source.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(source => new LocationFilterOption(
+                source.Key,
+                $"{FormatSourceLabel(source.Key)} ({source.Count})"))
+            .ToArray();
+
+        SourceFilters.Clear();
+        SourceFilters.Add(new LocationFilterOption(string.Empty, $"All sources ({Jobs.Count})"));
+        foreach (var option in sourceOptions)
+        {
+            SourceFilters.Add(option);
+        }
+
+        _selectedSourceFilter = SourceFilters.FirstOrDefault(option =>
+            string.Equals(option.Key, previousKey, StringComparison.OrdinalIgnoreCase))
+            ?? SourceFilters.FirstOrDefault();
+        this.RaisePropertyChanged(nameof(SelectedSourceFilter));
+    }
+
+    private static bool MatchesSourceFilter(JobPosting posting, LocationFilterOption? filter) =>
+        filter is null || filter.Key.Length == 0
+        || string.Equals(posting.Site?.Trim(), filter.Key, StringComparison.OrdinalIgnoreCase);
+
+    private static string FormatSourceLabel(string source) => source switch
+    {
+        "zip_recruiter" => "ZipRecruiter",
+        _ => source.Length == 0 ? source : char.ToUpperInvariant(source[0]) + source[1..],
+    };
 
     private static bool MatchesLocationFilter(JobPosting posting, LocationFilterOption? filter)
     {

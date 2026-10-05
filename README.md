@@ -21,6 +21,8 @@ The database is created at the operating system's local application data directo
 
 The built-in profile searches for lead .NET, principal C#, staff backend, distributed-systems, and software engineering management roles across the United Kingdom. Select the job boards to include, then run the profile regularly to build a useful history; scans are manual and are not scheduled automatically.
 
+Debug builds include [HotAvalonia](https://github.com/Kira-NT/HotAvalonia) for live `.axaml` reload. Launch the app as usual and save a XAML file to apply the changes to the running window.
+
 To populate an empty database with clearly labeled synthetic history for UI checks, set `JOBSPY_DEMO_DATA=1` before launching. The sample seed runs only when the selected database has no scan history.
 
 ## UI inspection with XamlMcp

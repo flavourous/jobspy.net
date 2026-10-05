@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using JobSpy.Desktop.Models;
 using Python.Runtime;
@@ -34,13 +35,17 @@ public sealed class PythonJobSpyService : IJobSearchService
                 site_name: pythonSites,
                 search_term: request.SearchTerm,
                 location: string.IsNullOrWhiteSpace(request.Location) ? null : request.Location,
+                country_indeed: "UK",
+                fetch_description: true,
                 results_wanted: 20,
                 verbose: 0);
             dynamic dataFrame = jobs;
             using var jsonResult = (PyObject)dataFrame.to_json(orient: "records", date_format: "iso");
 
-            return JsonSerializer.Deserialize<List<JobPosting>>(jsonResult.As<string>(), SerializerOptions)
+            var postings = JsonSerializer.Deserialize<List<JobPosting>>(jsonResult.As<string>(), SerializerOptions)
                 ?? new List<JobPosting>();
+
+            return postings.Where(posting => JobLanguageFilter.IsRelevant(posting.Description)).ToList();
         }
     }
 

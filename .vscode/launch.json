@@ -1,0 +1,11 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Avalonia: JobSpy.Desktop",
+            "type": "dotnet",
+            "request": "launch",
+            "projectPath": "${workspaceFolder}/src/JobSpy.Desktop/JobSpy.Desktop.csproj"
+        }
+    ]
+}
