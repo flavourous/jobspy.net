@@ -50,9 +50,16 @@ public static class DemoHistorySeeder
             repository.RecordScan(postings, "DEMO: CV-tuned UK senior engineering profile", capturedAt, isDemo: true);
         }
 
-        foreach (var roleId in new[] { "platform", "manager", "contract", "unknown" })
+        var statuses = new Dictionary<string, string>
         {
-            repository.SetStarred(roles[roleId].Id, true);
+            ["platform"] = OpportunityStatus.Interested,
+            ["manager"] = OpportunityStatus.Interview,
+            ["contract"] = OpportunityStatus.Applied,
+            ["unknown"] = OpportunityStatus.Rejected,
+        };
+        foreach (var (roleId, status) in statuses)
+        {
+            repository.SetStatus(roles[roleId].Id, status);
         }
     }
 

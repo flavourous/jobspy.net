@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using JobSpy.Desktop.Models;
 using ReactiveUI;
 using System.Reactive;
@@ -7,20 +8,14 @@ namespace JobSpy.Desktop.ViewModels;
 
 public sealed class JobOpportunityViewModel : ReactiveObject
 {
-    private readonly Action<string, bool> _saveStar;
-    private bool _isStarred;
+    private readonly Action<string, string> _saveStatus;
+    private string _selectedStatus;
 
-    public JobOpportunityViewModel(JobPosting posting, Action<string, bool> saveStar)
+    public JobOpportunityViewModel(JobPosting posting, Action<string, string> saveStatus)
     {
         Posting = posting;
-        _saveStar = saveStar;
-        _isStarred = posting.IsStarred;
-        ToggleStarCommand = ReactiveCommand.Create(() =>
-        {
-            IsStarred = !IsStarred;
-            _saveStar(Posting.Id, IsStarred);
-            return Unit.Default;
-        });
+        _saveStatus = saveStatus;
+        _selectedStatus = OpportunityStatus.Normalize(posting.Status);
     }
 
     public JobPosting Posting { get; }
@@ -51,19 +46,24 @@ public sealed class JobOpportunityViewModel : ReactiveObject
         ? "No description was provided by the source."
         : Posting.Description;
 
-    public string StarGlyph => IsStarred ? "★" : "☆";
-
     public string SiteLabel => string.IsNullOrWhiteSpace(Posting.Site) ? "Job board" : Posting.Site;
 
-    public ReactiveCommand<ReactiveUI.Primitives.RxVoid, Unit> ToggleStarCommand { get; }
+    public IReadOnlyList<string> AvailableStatuses => OpportunityStatus.All;
 
-    public bool IsStarred
+    public string SelectedStatus
     {
-        get => _isStarred;
-        private set
+        get => _selectedStatus;
+        set
         {
-            this.RaiseAndSetIfChanged(ref _isStarred, value);
-            this.RaisePropertyChanged(nameof(StarGlyph));
+            var normalizedStatus = OpportunityStatus.Normalize(value);
+            if (_selectedStatus == normalizedStatus)
+            {
+                return;
+            }
+
+            this.RaiseAndSetIfChanged(ref _selectedStatus, normalizedStatus);
+            Posting.Status = normalizedStatus;
+            _saveStatus(Posting.Id, normalizedStatus);
         }
     }
 }

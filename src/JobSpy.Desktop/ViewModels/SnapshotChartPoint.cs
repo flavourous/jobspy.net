@@ -15,8 +15,7 @@ public sealed class SnapshotChartPoint : ReactiveObject
     public SnapshotChartPoint(JobSearchSnapshot snapshot, IReadOnlyList<SalaryChartSegment> segments, Action<SnapshotChartPoint> select)
     {
         Snapshot = snapshot;
-        Segments = segments;
-        MedianSalaryGbp = Median(segments.Select(segment => segment.SalaryGbp).OrderBy(salary => salary).ToArray());
+        UpdateSegments(segments);
         SelectCommand = ReactiveCommand.Create(() =>
         {
             select(this);
@@ -26,9 +25,9 @@ public sealed class SnapshotChartPoint : ReactiveObject
 
     public JobSearchSnapshot Snapshot { get; }
 
-    public IReadOnlyList<SalaryChartSegment> Segments { get; }
+    public IReadOnlyList<SalaryChartSegment> Segments { get; private set; } = Array.Empty<SalaryChartSegment>();
 
-    public decimal? MedianSalaryGbp { get; }
+    public decimal? MedianSalaryGbp { get; private set; }
 
     public string DateLabel => Snapshot.CapturedAtUtc.ToLocalTime().ToString("dd MMM");
 
@@ -40,6 +39,14 @@ public sealed class SnapshotChartPoint : ReactiveObject
     {
         get => _isSelected;
         set => this.RaiseAndSetIfChanged(ref _isSelected, value);
+    }
+
+    public void UpdateSegments(IReadOnlyList<SalaryChartSegment> segments)
+    {
+        Segments = segments;
+        MedianSalaryGbp = Median(segments.Select(segment => segment.SalaryGbp).OrderBy(salary => salary).ToArray());
+        this.RaisePropertyChanged(nameof(Segments));
+        this.RaisePropertyChanged(nameof(MedianSalaryGbp));
     }
 
     private static decimal? Median(decimal[] salaries)

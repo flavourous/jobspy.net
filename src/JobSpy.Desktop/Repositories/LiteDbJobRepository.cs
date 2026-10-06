@@ -23,12 +23,12 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
         _postings.EnsureIndex(posting => posting.JobUrl);
         _snapshots.EnsureIndex(snapshot => snapshot.CapturedAtUtc);
         _observations.EnsureIndex(observation => observation.SnapshotId);
+        MigrateLegacyStatuses();
         EnrichStoredPostings();
     }
 
     public IReadOnlyList<JobPosting> GetAll() => _postings.FindAll()
-        .OrderByDescending(posting => posting.IsStarred)
-        .ThenByDescending(posting => posting.LastSeenUtc)
+        .OrderByDescending(posting => posting.LastSeenUtc)
         .ToList();
 
     public IReadOnlyList<JobSearchSnapshot> GetHistory() => _snapshots.FindAll()
@@ -42,8 +42,7 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
             .Where(posting => posting is not null)
             .Cast<JobPosting>()
             .DistinctBy(posting => posting.Id, StringComparer.OrdinalIgnoreCase)
-            .OrderByDescending(posting => posting.IsStarred)
-            .ThenBy(posting => posting.Company)
+            .OrderBy(posting => posting.Company)
             .ToList();
         return jobs;
     }
@@ -51,6 +50,8 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
     public IReadOnlyList<JobObservation> GetObservationsForSnapshot(string snapshotId) => _observations
         .Find(observation => observation.SnapshotId == snapshotId)
         .ToList();
+
+    public IReadOnlyList<JobObservation> GetAllObservations() => _observations.FindAll().ToList();
 
     public JobSearchSnapshot RecordScan(IEnumerable<JobPosting> postings, string searchProfile, DateTime capturedAtUtc, bool isDemo = false)
     {
@@ -72,6 +73,29 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToArray(),
                 StringComparer.OrdinalIgnoreCase);
+        var existingById = _postings.FindAll()
+            .ToDictionary(posting => posting.Id, StringComparer.OrdinalIgnoreCase);
+        foreach (var (id, incoming) in incomingById)
+        {
+            existingById.TryGetValue(id, out var existing);
+            JobPostingEnricher.Enrich(incoming);
+            if (string.IsNullOrWhiteSpace(incoming.EnrichedSalary)
+                && existing?.EnrichmentVersion == JobPostingEnricher.CurrentVersion)
+            {
+                incoming.EnrichedSalary = existing.EnrichedSalary;
+                incoming.EnrichedSalaryMinAmount = existing.EnrichedSalaryMinAmount;
+                incoming.EnrichedSalaryAmount = existing.EnrichedSalaryAmount;
+                incoming.EnrichedSalaryCurrency = existing.EnrichedSalaryCurrency;
+                incoming.EnrichedSalaryInterval = existing.EnrichedSalaryInterval;
+            }
+
+            if (string.IsNullOrWhiteSpace(incoming.EnrichedType)
+                && existing?.EnrichmentVersion == JobPostingEnricher.CurrentVersion)
+            {
+                incoming.EnrichedType = existing.EnrichedType;
+            }
+        }
+
         var snapshot = new JobSearchSnapshot
         {
             Id = Guid.NewGuid().ToString("N"),
@@ -98,7 +122,6 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
         _database.BeginTrans();
         try
         {
-            var existingById = _postings.FindAll().ToDictionary(posting => posting.Id, StringComparer.OrdinalIgnoreCase);
             foreach (var (id, incoming) in incomingById)
             {
                 existingById.TryGetValue(id, out var existing);
@@ -106,22 +129,14 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
                 incoming.FirstSeenUtc = existing?.FirstSeenUtc ?? captured;
                 incoming.LastSeenUtc = captured;
                 incoming.DisappearedAtUtc = null;
-                incoming.IsStarred = existing?.IsStarred ?? false;
+                incoming.Status = existing is null
+                    ? OpportunityStatus.Normalize(incoming.Status)
+                    : OpportunityStatus.Normalize(existing.Status);
+                incoming.IsStarred = false;
                 incoming.RequiresRelocation = existing is not null
                     && string.Equals(existing.Location, incoming.Location, StringComparison.OrdinalIgnoreCase)
                     ? existing.RequiresRelocation ?? incoming.RequiresRelocation
                     : incoming.RequiresRelocation;
-                JobPostingEnricher.Enrich(incoming);
-                if (incoming.EnrichedSalary is null && existing?.EnrichmentVersion == JobPostingEnricher.CurrentVersion)
-                {
-                    incoming.EnrichedSalary = existing.EnrichedSalary;
-                }
-
-                if (incoming.EnrichedType is null && existing?.EnrichmentVersion == JobPostingEnricher.CurrentVersion)
-                {
-                    incoming.EnrichedType = existing.EnrichedType;
-                }
-
                 _postings.Upsert(incoming);
                 var searchTerms = searchTermsById[id];
                 if (searchTerms.Length == 0)
@@ -168,15 +183,17 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
         }
     }
 
-    public void SetStarred(string jobId, bool isStarred)
+    public void SetStatus(string jobId, string status)
     {
+        var normalizedStatus = OpportunityStatus.Normalize(status);
         var posting = _postings.FindById(jobId);
         if (posting is null)
         {
             return;
         }
 
-        posting.IsStarred = isStarred;
+        posting.Status = normalizedStatus;
+        posting.IsStarred = false;
         _postings.Update(posting);
     }
 
@@ -220,6 +237,25 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
         {
             _database.Rollback();
             throw;
+        }
+    }
+
+    private void MigrateLegacyStatuses()
+    {
+        foreach (var posting in _postings.FindAll())
+        {
+            var normalizedStatus = OpportunityStatus.Normalize(posting.Status);
+            var migratedStatus = posting.IsStarred && normalizedStatus == OpportunityStatus.New
+                ? OpportunityStatus.Interested
+                : normalizedStatus;
+            if (posting.Status == migratedStatus && !posting.IsStarred)
+            {
+                continue;
+            }
+
+            posting.Status = migratedStatus;
+            posting.IsStarred = false;
+            _postings.Update(posting);
         }
     }
 

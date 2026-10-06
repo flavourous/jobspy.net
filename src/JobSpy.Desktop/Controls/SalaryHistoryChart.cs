@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using System.Windows.Input;
@@ -30,6 +31,7 @@ public sealed class SalaryHistoryChart : Control
     private static readonly Color TextColor = Color.Parse("#52615A");
     private static readonly Color ManagementOverlayColor = Color.Parse("#1A7030A0");
     private IReadOnlyList<Dictionary<string, SegmentSlot>> _renderedSlotMaps = Array.Empty<Dictionary<string, SegmentSlot>>();
+    private readonly HashSet<SnapshotChartPoint> _observedPoints = new();
     private string? _hoveredJobId;
 
     public static readonly StyledProperty<ObservableCollection<SnapshotChartPoint>?> ItemsSourceProperty =
@@ -88,11 +90,21 @@ public sealed class SalaryHistoryChart : Control
             if (change.OldValue is ObservableCollection<SnapshotChartPoint> previous)
             {
                 previous.CollectionChanged -= OnItemsChanged;
+                foreach (var point in _observedPoints)
+                {
+                    point.PropertyChanged -= OnPointChanged;
+                }
+
+                _observedPoints.Clear();
             }
 
             if (change.NewValue is ObservableCollection<SnapshotChartPoint> current)
             {
                 current.CollectionChanged += OnItemsChanged;
+                foreach (var point in current)
+                {
+                    ObservePoint(point);
+                }
             }
 
             InvalidateMeasure();
@@ -481,8 +493,51 @@ public sealed class SalaryHistoryChart : Control
 
     private void OnItemsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        if (e.Action == NotifyCollectionChangedAction.Reset)
+        {
+            foreach (var point in _observedPoints)
+            {
+                point.PropertyChanged -= OnPointChanged;
+            }
+
+            _observedPoints.Clear();
+        }
+
+        if (e.OldItems is not null)
+        {
+            foreach (SnapshotChartPoint point in e.OldItems)
+            {
+                point.PropertyChanged -= OnPointChanged;
+                _observedPoints.Remove(point);
+            }
+        }
+
+        if (e.NewItems is not null)
+        {
+            foreach (SnapshotChartPoint point in e.NewItems)
+            {
+                ObservePoint(point);
+            }
+        }
+
         InvalidateMeasure();
         InvalidateVisual();
+    }
+
+    private void ObservePoint(SnapshotChartPoint point)
+    {
+        if (_observedPoints.Add(point))
+        {
+            point.PropertyChanged += OnPointChanged;
+        }
+    }
+
+    private void OnPointChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(SnapshotChartPoint.Segments) or nameof(SnapshotChartPoint.MedianSalaryGbp))
+        {
+            InvalidateVisual();
+        }
     }
 
     private sealed record SegmentSlot(SalaryChartSegment Segment, double CenterX, double Top, double Bottom, double Height)

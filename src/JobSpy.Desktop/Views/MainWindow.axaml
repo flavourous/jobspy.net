@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:JobSpy.Desktop.ViewModels"
-    xmlns:controls="using:JobSpy.Desktop.Controls"
+        xmlns:controls="using:JobSpy.Desktop.Controls"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="1180" d:DesignHeight="820"
@@ -20,6 +20,87 @@
         <Style Selector="ToggleButton.timeline-point:checked">
             <Setter Property="Background" Value="#EAF2EC" />
         </Style>
+        <Style Selector="StackPanel.legend-item">
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="StackPanel.legend-item > Border">
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="StackPanel.legend-item > TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.scan-button">
+            <Setter Property="Background" Value="#F1B45A" />
+            <Setter Property="Foreground" Value="#25352C" />
+            <Setter Property="BorderBrush" Value="#D99A41" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.scan-button:pointerover">
+            <Setter Property="Background" Value="#FFC86C" />
+            <Setter Property="BorderBrush" Value="#E7AA4E" />
+        </Style>
+        <Style Selector="Button.scan-button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#FFC86C" />
+            <Setter Property="BorderBrush" Value="#E7AA4E" />
+            <Setter Property="Foreground" Value="#25352C" />
+        </Style>
+        <Style Selector="Button.scan-button:pressed">
+            <Setter Property="Background" Value="#D99534" />
+            <Setter Property="BorderBrush" Value="#BB7623" />
+            <Setter Property="Foreground" Value="#1F3028" />
+        </Style>
+        <Style Selector="Button.scan-button:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#D99534" />
+            <Setter Property="BorderBrush" Value="#BB7623" />
+            <Setter Property="Foreground" Value="#1F3028" />
+        </Style>
+        <Style Selector="Button.scan-button:disabled">
+            <Setter Property="Background" Value="#D8DDD9" />
+            <Setter Property="BorderBrush" Value="#D8DDD9" />
+            <Setter Property="Foreground" Value="#79847E" />
+        </Style>
+        <Style Selector="Button.scan-button:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#D8DDD9" />
+            <Setter Property="BorderBrush" Value="#D8DDD9" />
+            <Setter Property="Foreground" Value="#79847E" />
+        </Style>
+        <Style Selector="Button.open-posting-button">
+            <Setter Property="Background" Value="White" />
+            <Setter Property="Foreground" Value="#174B3D" />
+            <Setter Property="BorderBrush" Value="#B7CBBE" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.open-posting-button:pointerover">
+            <Setter Property="Background" Value="#EAF3EC" />
+            <Setter Property="BorderBrush" Value="#87AC93" />
+        </Style>
+        <Style Selector="Button.open-posting-button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#EAF3EC" />
+            <Setter Property="BorderBrush" Value="#87AC93" />
+            <Setter Property="Foreground" Value="#174B3D" />
+        </Style>
+        <Style Selector="Button.open-posting-button:pressed">
+            <Setter Property="Background" Value="#D4E5D8" />
+            <Setter Property="BorderBrush" Value="#6F9B7D" />
+        </Style>
+        <Style Selector="Button.open-posting-button:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#D4E5D8" />
+            <Setter Property="BorderBrush" Value="#6F9B7D" />
+            <Setter Property="Foreground" Value="#174B3D" />
+        </Style>
+        <Style Selector="Button.open-posting-button:disabled">
+            <Setter Property="Background" Value="#F2F4F2" />
+            <Setter Property="BorderBrush" Value="#E1E6E1" />
+            <Setter Property="Foreground" Value="#89948D" />
+        </Style>
+        <Style Selector="Button.open-posting-button:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#F2F4F2" />
+            <Setter Property="BorderBrush" Value="#E1E6E1" />
+            <Setter Property="Foreground" Value="#89948D" />
+        </Style>
     </Window.Styles>
 
     <Grid RowDefinitions="Auto,Auto,*">
@@ -29,8 +110,8 @@
                     <TextBlock Text="JOBSPY  /  ROLE MARKET" FontSize="11" FontWeight="Bold" Foreground="#A7D8BD" />
                     <TextBlock Text="Senior .NET opportunities" FontSize="25" FontWeight="SemiBold" Foreground="White" />
                 </StackPanel>
-                <Button Grid.Column="1" Content="Scan profile" Command="{Binding SearchCommand}"
-                        Padding="18,10" Background="#F1B45A" Foreground="#25352C" FontWeight="SemiBold"
+                <Button Grid.Column="1" Content="Scan profile" Classes="scan-button"
+                    Command="{Binding SearchCommand}" Padding="18,10"
                         VerticalAlignment="Center" />
             </Grid>
         </Border>
@@ -47,7 +128,7 @@
         <Grid Grid.Row="2" Margin="24,16" RowDefinitions="Auto,Auto,*" RowSpacing="8">
             <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="16" VerticalAlignment="Center">
                 <StackPanel Spacing="2">
-                    <TextBlock Text="AVAILABLE ROLES" FontSize="10" FontWeight="Bold" Foreground="#718078" />
+                    <TextBlock Text="MATCHING ROLES" FontSize="10" FontWeight="Bold" Foreground="#718078" />
                     <TextBlock Text="{Binding ResultCount}" FontSize="22" FontWeight="SemiBold" Foreground="#20382E" />
                 </StackPanel>
                 <StackPanel Grid.Column="1" Spacing="2">
@@ -59,12 +140,9 @@
                     <TextBlock Text="SELECTED SCAN" FontSize="10" FontWeight="Bold" Foreground="#718078" />
                     <TextBlock Text="{Binding CapturedAtLabel}" FontSize="13" FontWeight="SemiBold" Foreground="#20382E" />
                 </StackPanel>
-                <StackPanel Grid.Column="4" Spacing="2">
-                    <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="8">
-                        <TextBlock Text="FILTERS" FontSize="10" FontWeight="Bold" Foreground="#718078" />
-                        <TextBlock Grid.Column="1" Text="{Binding SnapshotKindLabel}" FontSize="10"
-                                   FontWeight="Bold" Foreground="#A66A28" />
-                    </Grid>
+                <StackPanel Grid.Column="4" Spacing="2" VerticalAlignment="Bottom">
+                    <TextBlock Text="{Binding SnapshotKindLabel}" FontSize="10"
+                               FontWeight="Bold" Foreground="#A66A28" />
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="0,3,0,0">
                         <ComboBox Width="140" ItemsSource="{Binding LocationFilters}"
                         SelectedItem="{Binding SelectedLocationFilter}" MinHeight="0"
@@ -82,6 +160,15 @@
                             <DataTemplate x:DataType="vm:LocationFilterOption">
                                 <TextBlock Text="{Binding Label}" FontSize="11" TextTrimming="CharacterEllipsis" />
                             </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <ComboBox Width="118" ItemsSource="{Binding StatusFilters}"
+                                  SelectedItem="{Binding SelectedStatusFilter}" MinHeight="0"
+                                  HorizontalContentAlignment="Stretch" ToolTip.Tip="Filter by status">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:LocationFilterOption">
+                                    <TextBlock Text="{Binding Label}" FontSize="11" TextTrimming="CharacterEllipsis" />
+                                </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
                         <CheckBox Content="New openings today" Height="10"  Margin="0,-3,0,0"
@@ -103,13 +190,13 @@
                             <TextBlock Text="Select a point to inspect the roles seen in that scan." FontSize="11" Foreground="#718078" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right" VerticalAlignment="Center">
-                            <StackPanel Orientation="Horizontal" Spacing="4"><Border Width="18" Height="16" Background="#168264" /><TextBlock Text="Permanent" FontSize="10" Foreground="#52615A" /></StackPanel>
-                            <StackPanel Orientation="Horizontal" Spacing="4"><Border Width="18" Height="16" Background="#C36A3D" /><TextBlock Text="Contract" FontSize="10" Foreground="#52615A" /></StackPanel>
-                            <StackPanel Orientation="Horizontal" Spacing="4"><Border Width="18" Height="16" Background="#397AA6" /><TextBlock Text="Part-time" FontSize="10" Foreground="#52615A" /></StackPanel>
-                            <StackPanel Orientation="Horizontal" Spacing="4"><Border Width="18" Height="16" Background="#78847D" /><TextBlock Text="Other / unknown" FontSize="10" Foreground="#52615A" /></StackPanel>
-                            <StackPanel Orientation="Horizontal" Spacing="4"><Border Width="18" Height="16" Background="#168264" Opacity="0.45" /><TextBlock Text="Needs relocation (faded)" FontSize="10" Foreground="#52615A" /></StackPanel>
-                            <StackPanel Orientation="Horizontal" Spacing="4"><Border Width="18" Height="16" Background="#168264" ClipToBounds="True"><Border Background="#1A7030A0" /></Border><TextBlock Text="Management" FontSize="10" Foreground="#52615A" /></StackPanel>
-                            <StackPanel Orientation="Horizontal" Spacing="4"><Border Width="18" Height="16" Background="#E4EAE5" ClipToBounds="True"><TextBlock Text="////" Foreground="#283A32" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border><TextBlock Text="Salary estimated (striped)" FontSize="10" Foreground="#52615A" /></StackPanel>
+                            <StackPanel Classes="legend-item" Orientation="Horizontal" Spacing="4"><Border Width="18" Height="16" Background="#168264" /><TextBlock Text="Permanent" FontSize="10" Foreground="#52615A" /></StackPanel>
+                            <StackPanel Classes="legend-item" Orientation="Horizontal" Spacing="4"><Border Width="18" Height="16" Background="#C36A3D" /><TextBlock Text="Contract" FontSize="10" Foreground="#52615A" /></StackPanel>
+                            <StackPanel Classes="legend-item" Orientation="Horizontal" Spacing="4"><Border Width="18" Height="16" Background="#397AA6" /><TextBlock Text="Part-time" FontSize="10" Foreground="#52615A" /></StackPanel>
+                            <StackPanel Classes="legend-item" Orientation="Horizontal" Spacing="4"><Border Width="18" Height="16" Background="#78847D" /><TextBlock Text="Other / unknown" FontSize="10" Foreground="#52615A" /></StackPanel>
+                            <StackPanel Classes="legend-item" Orientation="Horizontal" Spacing="4"><Border Width="18" Height="16" Background="#168264" Opacity="0.45" /><TextBlock Text="Needs relocation (faded)" FontSize="10" Foreground="#52615A" /></StackPanel>
+                            <StackPanel Classes="legend-item" Orientation="Horizontal" Spacing="4"><Border Width="18" Height="16" Background="#168264" ClipToBounds="True"><Border Background="#1A7030A0" /></Border><TextBlock Text="Management" FontSize="10" Foreground="#52615A" /></StackPanel>
+                            <StackPanel Classes="legend-item" Orientation="Horizontal" Spacing="4"><Border Width="18" Height="16" Background="#E4EAE5" ClipToBounds="True"><TextBlock Text="////" Foreground="#283A32" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border><TextBlock Text="Salary estimated (striped)" FontSize="10" Foreground="#52615A" /></StackPanel>
                         </StackPanel>
                         <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding StatusMessage}"
                                    FontSize="10" Foreground="#68786F" TextTrimming="CharacterEllipsis"
@@ -132,9 +219,20 @@
             <Grid Grid.Row="2" ColumnDefinitions="1.05*,1.4*" ColumnSpacing="12">
                 <Border Background="White" BorderBrush="#DEE5DF" BorderThickness="1">
                     <Grid RowDefinitions="Auto,*">
-                        <Border Padding="10,7" BorderBrush="#E4E9E5" BorderThickness="0,0,0,1" Background="#F8FAF8">
-                            <TextBlock Text="ROLE  /  COMPANY  /  SALARY" FontSize="10" FontWeight="Bold"
-                                       Foreground="#718078" VerticalAlignment="Center" />
+                        <Border Padding="8,7" BorderBrush="#E4E9E5" BorderThickness="0,0,0,1" Background="#F8FAF8">
+                            <Grid ColumnSpacing="8" VerticalAlignment="Center">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="84" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="ROLE" FontSize="10" FontWeight="Bold" Foreground="#718078" />
+                                <TextBlock Grid.Column="1" Text="COMPANY" FontSize="10" FontWeight="Bold" Foreground="#718078" />
+                                <TextBlock Grid.Column="2" Text="SALARY" FontSize="10" FontWeight="Bold" Foreground="#718078" />
+                                <TextBlock Grid.Column="3" Text="STATUS" FontSize="10" FontWeight="Bold"
+                                           Foreground="#718078" HorizontalAlignment="Left" />
+                            </Grid>
                         </Border>
                         <ListBox Grid.Row="1" ItemsSource="{Binding FilteredJobs}" SelectedItem="{Binding SelectedJob}"
                                  Background="Transparent" BorderThickness="0" Padding="0">
@@ -161,34 +259,30 @@
                                     <Setter Property="Background" Value="#EAF3EC" />
                                     <Setter Property="BorderBrush" Value="#B8D2BF" />
                                 </Style>
-                                <Style Selector="Button.star-toggle">
-                                    <Setter Property="Background" Value="Transparent" />
-                                    <Setter Property="BorderThickness" Value="0" />
-                                    <Setter Property="Padding" Value="0" />
-                                    <Setter Property="Width" Value="28" />
-                                    <Setter Property="Height" Value="28" />
-                                    <Setter Property="HorizontalContentAlignment" Value="Center" />
-                                    <Setter Property="VerticalContentAlignment" Value="Center" />
-                                    <Setter Property="VerticalAlignment" Value="Center" />
-                                    <Setter Property="Foreground" Value="#A85D3B" />
-                                </Style>
-                                <Style Selector="Button.star-toggle:pointerover">
-                                    <Setter Property="Background" Value="#F4EAE5" />
-                                    <Setter Property="Foreground" Value="#8E472A" />
-                                </Style>
                             </ListBox.Styles>
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:JobOpportunityViewModel">
                                     <Border BorderThickness="0,0,0,1" Padding="8,5" CornerRadius="3">
-                                        <Grid ColumnDefinitions="2*,1.2*,Auto,Auto" ColumnSpacing="8" VerticalAlignment="Center">
+                                        <Grid ColumnSpacing="8" VerticalAlignment="Center">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="2*" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="84" />
+                                            </Grid.ColumnDefinitions>
                                             <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold"
                                                        Foreground="#20382E" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                             <TextBlock Grid.Column="1" Text="{Binding Company}" FontSize="11" Foreground="#52615A"
                                                        TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                             <TextBlock Grid.Column="2" Text="{Binding SalaryLabel}" FontSize="10" FontWeight="SemiBold"
                                                        Foreground="#16775C" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                            <Button Grid.Column="3" Content="{Binding StarGlyph}" Command="{Binding ToggleStarCommand}"
-                                                    Classes="star-toggle" FontSize="16" ToolTip.Tip="Star or unstar this role" />
+                                            <ComboBox Grid.Column="3" Width="84" HorizontalAlignment="Right"
+                                                      ItemsSource="{Binding AvailableStatuses}"
+                                                      SelectedItem="{Binding SelectedStatus}" MinHeight="0"
+                                                      Padding="0" BorderThickness="0" Background="Transparent"
+                                                      FontSize="10" Foreground="#52615A"
+                                                      HorizontalContentAlignment="Right"
+                                                      ToolTip.Tip="Set opportunity status" />
                                         </Grid>
                                     </Border>
                                 </DataTemplate>
@@ -209,7 +303,8 @@
                                            Foreground="#20382E" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding SelectedJobCompany}" FontSize="13" Foreground="#52615A" />
                             </StackPanel>
-                            <Button Grid.Column="1" Content="Open posting" Command="{Binding OpenSelectedJobCommand}"
+                                <Button Grid.Column="1" Content="Open posting" Classes="open-posting-button"
+                                    Command="{Binding OpenSelectedJobCommand}"
                                     Padding="12,7" VerticalAlignment="Top" />
                         </Grid>
                         <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12">
@@ -226,8 +321,7 @@
                             <TextBlock Text="{Binding SelectedJobAvailabilityLabel}" FontSize="11" FontWeight="SemiBold" Foreground="#27634B" />
                         </Border>
                         <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto" Margin="0,3,0,0">
-                            <TextBlock Text="{Binding SelectedJobDescription}" FontSize="12" Foreground="#52615A"
-                                       TextWrapping="Wrap" />
+                            <controls:MarkdownDescription Markdown="{Binding SelectedJobDescription}" />
                         </ScrollViewer>
                     </Grid>
                 </Border>

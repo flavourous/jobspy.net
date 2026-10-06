@@ -10,7 +10,8 @@ public interface IJobRepository
     IReadOnlyList<JobSearchSnapshot> GetHistory();
     IReadOnlyList<JobPosting> GetJobsForSnapshot(string snapshotId);
     IReadOnlyList<JobObservation> GetObservationsForSnapshot(string snapshotId);
+    IReadOnlyList<JobObservation> GetAllObservations();
     JobSearchSnapshot RecordScan(IEnumerable<JobPosting> postings, string searchProfile, DateTime capturedAtUtc, bool isDemo = false);
-    void SetStarred(string jobId, bool isStarred);
+    void SetStatus(string jobId, string status);
     void SetRelocationRequired(string jobId, bool requiresRelocation);
 }

@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Reactive;
@@ -28,6 +30,23 @@ public sealed class LocationFilterOption
     public string Label { get; }
 
     public bool IsRemote { get; }
+}
+
+internal sealed class BatchObservableCollection<T> : ObservableCollection<T>
+{
+    public void ReplaceAll(IReadOnlyList<T> items)
+    {
+        CheckReentrancy();
+        Items.Clear();
+        foreach (var item in items)
+        {
+            Items.Add(item);
+        }
+
+        OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+        OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+        OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+    }
 }
 
 public sealed class ScanProgressRow : ReactiveObject
@@ -148,6 +167,10 @@ public sealed class MainWindowViewModel : ViewModelBase
     private const string SearchLocation = "United Kingdom";
     private readonly IJobRepository _repository;
     private readonly IJobSearchService _searchService;
+    private readonly BatchObservableCollection<JobOpportunityViewModel> _filteredJobs;
+    private SnapshotHistoryData[] _snapshotHistory = Array.Empty<SnapshotHistoryData>();
+    private Dictionary<string, PostingFacts> _postingFactsById = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, SnapshotChartPoint> _chartPointsBySnapshotId = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<(string SearchTerm, string Site), int> _responseCounts = new();
     private string _statusMessage;
     private bool _isSearching;
@@ -162,6 +185,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     private bool _hasNoFilteredJobs;
     private LocationFilterOption? _selectedLocationFilter;
     private LocationFilterOption? _selectedSourceFilter;
+    private LocationFilterOption? _selectedStatusFilter;
     private bool _isNewTodayFilterEnabled;
     private bool _isDotNetLanguageFilterEnabled;
     private string _medianSalaryLabel = "No salary data";
@@ -176,11 +200,19 @@ public sealed class MainWindowViewModel : ViewModelBase
         _searchService = searchService;
         ChartPoints = new ObservableCollection<SnapshotChartPoint>();
         Jobs = new ObservableCollection<JobOpportunityViewModel>();
-        FilteredJobs = new ObservableCollection<JobOpportunityViewModel>();
+        _filteredJobs = new BatchObservableCollection<JobOpportunityViewModel>();
+        FilteredJobs = _filteredJobs;
         ScanProgressRows = new ObservableCollection<ScanProgressRow>(SearchTerms
             .SelectMany(term => SearchSites.Select(site => new ScanProgressRow(term, site))));
         LocationFilters = new ObservableCollection<LocationFilterOption>();
         SourceFilters = new ObservableCollection<LocationFilterOption>();
+        StatusFilters = new ObservableCollection<LocationFilterOption>(new[]
+        {
+            new LocationFilterOption(string.Empty, "All statuses"),
+        }.Concat(OpportunityStatus.All.Select(status => new LocationFilterOption(
+            status,
+            char.ToUpperInvariant(status[0]) + status[1..]))));
+        _selectedStatusFilter = StatusFilters[0];
 
         SearchCommand = ReactiveCommand.CreateFromTask(
             async () =>
@@ -222,6 +254,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             ? "No scans yet. Run the profile to start building a history."
             : $"Loaded {ChartPoints.Count} saved scans from your local history.";
         _ = RefreshExistingRelocationStatusesAsync();
+        _ = RefreshCurrencyRatesAsync();
     }
 
     public ObservableCollection<SnapshotChartPoint> ChartPoints { get; }
@@ -235,6 +268,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ObservableCollection<LocationFilterOption> LocationFilters { get; }
 
     public ObservableCollection<LocationFilterOption> SourceFilters { get; }
+
+    public ObservableCollection<LocationFilterOption> StatusFilters { get; }
 
     public ReactiveCommand<ReactiveUI.Primitives.RxVoid, Unit> SearchCommand { get; }
     public ReactiveCommand<ReactiveUI.Primitives.RxVoid, Unit> CloseScanProgressCommand { get; }
@@ -384,11 +419,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             }
 
             this.RaiseAndSetIfChanged(ref _selectedLocationFilter, value);
-            RefreshFilteredJobs();
-            if (SelectedJob is null || !FilteredJobs.Contains(SelectedJob))
-            {
-                SelectedJob = FilteredJobs.FirstOrDefault();
-            }
+            RefreshFilteredViews();
         }
     }
 
@@ -403,11 +434,22 @@ public sealed class MainWindowViewModel : ViewModelBase
             }
 
             this.RaiseAndSetIfChanged(ref _selectedSourceFilter, value);
-            RefreshFilteredJobs();
-            if (SelectedJob is null || !FilteredJobs.Contains(SelectedJob))
+            RefreshFilteredViews();
+        }
+    }
+
+    public LocationFilterOption? SelectedStatusFilter
+    {
+        get => _selectedStatusFilter;
+        set
+        {
+            if (_selectedStatusFilter == value)
             {
-                SelectedJob = FilteredJobs.FirstOrDefault();
+                return;
             }
+
+            this.RaiseAndSetIfChanged(ref _selectedStatusFilter, value);
+            RefreshFilteredViews();
         }
     }
 
@@ -422,11 +464,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             }
 
             this.RaiseAndSetIfChanged(ref _isNewTodayFilterEnabled, value);
-            RefreshFilteredJobs();
-            if (SelectedJob is null || !FilteredJobs.Contains(SelectedJob))
-            {
-                SelectedJob = FilteredJobs.FirstOrDefault();
-            }
+            RefreshFilteredViews();
         }
     }
 
@@ -441,11 +479,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             }
 
             this.RaiseAndSetIfChanged(ref _isDotNetLanguageFilterEnabled, value);
-            RefreshFilteredJobs();
-            if (SelectedJob is null || !FilteredJobs.Contains(SelectedJob))
-            {
-                SelectedJob = FilteredJobs.FirstOrDefault();
-            }
+            RefreshFilteredViews();
         }
     }
 
@@ -611,26 +645,67 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     private void PopulateHistory(System.Collections.Generic.IReadOnlyList<JobSearchSnapshot> history, string? selectedSnapshotId)
     {
-        ChartPoints.Clear();
-        foreach (var snapshot in history)
+        var postingsById = _repository.GetAll()
+            .ToDictionary(posting => posting.Id, StringComparer.OrdinalIgnoreCase);
+        _postingFactsById = postingsById.ToDictionary(
+            pair => pair.Key,
+            pair => new PostingFacts(
+                JobLanguageFilter.IsRelevant(pair.Value.Description),
+                pair.Value.AnnualSalaryGbp,
+                IsManagementRole(pair.Value.Title),
+                JobLocationClassifier.NeedsRelocation(pair.Value)),
+            StringComparer.OrdinalIgnoreCase);
+        var observationsBySnapshot = _repository.GetAllObservations()
+            .GroupBy(observation => observation.SnapshotId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
+        _snapshotHistory = history.Select(snapshot =>
         {
-            var jobs = _repository.GetJobsForSnapshot(snapshot.Id);
-            var searchTermsByJob = _repository.GetObservationsForSnapshot(snapshot.Id)
+            var observations = observationsBySnapshot.GetValueOrDefault(snapshot.Id) ?? Array.Empty<JobObservation>();
+            var snapshotPostings = observations
+                .Select(observation => postingsById.GetValueOrDefault(observation.JobId))
+                .Where(posting => posting is not null)
+                .Cast<JobPosting>()
+                .DistinctBy(posting => posting.Id, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var searchTermsByJob = observations
                 .Where(observation => !string.IsNullOrWhiteSpace(observation.SearchTerm))
                 .GroupBy(observation => observation.JobId, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(
                     group => group.Key,
-                    group => group.Select(observation => observation.SearchTerm).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+                    group => group.Select(observation => observation.SearchTerm)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray(),
                     StringComparer.OrdinalIgnoreCase);
+            return new SnapshotHistoryData(snapshot, snapshotPostings, searchTermsByJob);
+        }).ToArray();
+
+        ChartPoints.Clear();
+        _chartPointsBySnapshotId.Clear();
+        RebuildHistory(selectedSnapshotId);
+    }
+
+    private void RebuildHistory(string? selectedSnapshotId)
+    {
+        foreach (var snapshotData in _snapshotHistory)
+        {
+            var snapshot = snapshotData.Snapshot;
+            var jobs = snapshotData.Postings
+                .Where(MatchesPostingFilters)
+                .ToArray();
+            var searchTermsByJob = snapshotData.SearchTermsByJob;
+            var salariesByJob = jobs.ToDictionary(
+                posting => posting.Id,
+                posting => _postingFactsById[posting.Id].AnnualSalaryGbp,
+                StringComparer.OrdinalIgnoreCase);
             var salariesByTerm = jobs
-                .Where(posting => posting.AnnualSalaryGbp.HasValue)
+                .Where(posting => salariesByJob[posting.Id].HasValue)
                 .SelectMany(posting => searchTermsByJob.TryGetValue(posting.Id, out var terms)
-                    ? terms.Select(term => (Term: term, Salary: posting.AnnualSalaryGbp!.Value))
+                    ? terms.Select(term => (Term: term, Salary: salariesByJob[posting.Id]!.Value))
                     : Array.Empty<(string Term, decimal Salary)>())
                 .GroupBy(item => item.Term, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => Median(group.Select(item => item.Salary).OrderBy(salary => salary).ToArray()), StringComparer.OrdinalIgnoreCase);
             var reportedSalaries = jobs
-                .Select(posting => posting.AnnualSalaryGbp)
+                .Select(posting => salariesByJob[posting.Id])
                 .Where(salary => salary.HasValue)
                 .Select(salary => salary!.Value)
                 .OrderBy(salary => salary)
@@ -639,7 +714,8 @@ public sealed class MainWindowViewModel : ViewModelBase
             var segments = jobs
                 .Select(posting =>
                 {
-                    var reportedSalary = posting.AnnualSalaryGbp;
+                    var facts = _postingFactsById[posting.Id];
+                    var reportedSalary = salariesByJob[posting.Id];
                     var termMedian = searchTermsByJob.TryGetValue(posting.Id, out var terms)
                         ? Median(terms.Where(salariesByTerm.ContainsKey).SelectMany(term =>
                             salariesByTerm[term].HasValue ? new[] { salariesByTerm[term]!.Value } : Array.Empty<decimal>()).OrderBy(salary => salary).ToArray())
@@ -650,23 +726,42 @@ public sealed class MainWindowViewModel : ViewModelBase
                             posting,
                             salary.Value,
                             !reportedSalary.HasValue,
-                            IsManagementRole(posting.Title),
-                            JobLocationClassifier.NeedsRelocation(posting))
+                            facts.IsManagement,
+                            facts.NeedsRelocation)
                         : null;
                 })
                 .Where(segment => segment is not null)
                 .Cast<SalaryChartSegment>()
-                .Where(segment => segment.Posting.IsStarred)
                 .OrderBy(segment => segment.Posting.FirstSeenUtc)
                 .ThenBy(segment => segment.Posting.Id, StringComparer.Ordinal)
                 .ToArray();
-            ChartPoints.Add(new SnapshotChartPoint(snapshot, segments, SelectSnapshot));
+            if (_chartPointsBySnapshotId.TryGetValue(snapshot.Id, out var point))
+            {
+                point.UpdateSegments(segments);
+            }
+            else
+            {
+                point = new SnapshotChartPoint(snapshot, segments, SelectSnapshot);
+                _chartPointsBySnapshotId.Add(snapshot.Id, point);
+                ChartPoints.Add(point);
+            }
         }
 
         HasNoHistory = ChartPoints.Count == 0;
         SelectedPoint = ChartPoints.FirstOrDefault(point => point.Snapshot.Id == selectedSnapshotId)
             ?? ChartPoints.LastOrDefault();
     }
+
+    private sealed record SnapshotHistoryData(
+        JobSearchSnapshot Snapshot,
+        JobPosting[] Postings,
+        Dictionary<string, string[]> SearchTermsByJob);
+
+    private sealed record PostingFacts(
+        bool IsDotNetRelevant,
+        decimal? AnnualSalaryGbp,
+        bool IsManagement,
+        bool NeedsRelocation);
 
     private void SelectSnapshot(SnapshotChartPoint point) => SelectedPoint = point;
 
@@ -699,6 +794,22 @@ public sealed class MainWindowViewModel : ViewModelBase
             job.Posting.Id,
             selectedJobId,
             StringComparison.OrdinalIgnoreCase)) ?? Jobs.FirstOrDefault();
+    }
+
+    private async Task RefreshCurrencyRatesAsync()
+    {
+        if (!await SalaryCurrencyConverter.RefreshRatesAsync())
+        {
+            return;
+        }
+
+        var selectedSnapshotId = SelectedPoint?.Snapshot.Id;
+        var selectedJobId = SelectedJob?.Posting.Id;
+        PopulateHistory(_repository.GetHistory(), selectedSnapshotId);
+        SelectedJob = FilteredJobs.FirstOrDefault(job => string.Equals(
+            job.Posting.Id,
+            selectedJobId,
+            StringComparison.OrdinalIgnoreCase)) ?? FilteredJobs.FirstOrDefault();
     }
 
     private static async Task ResolveRelocationStatusesAsync(System.Collections.Generic.IEnumerable<JobPosting> postings)
@@ -737,7 +848,10 @@ public sealed class MainWindowViewModel : ViewModelBase
     private void LoadSelectedSnapshot(JobSearchSnapshot? snapshot)
     {
         Jobs.Clear();
-        if (snapshot is null)
+        var snapshotData = snapshot is null
+            ? null
+            : _snapshotHistory.FirstOrDefault(data => data.Snapshot.Id == snapshot.Id);
+        if (snapshotData is null)
         {
             ResultCount = 0;
             MedianSalaryLabel = "No salary data";
@@ -752,52 +866,75 @@ public sealed class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        var postings = _repository.GetJobsForSnapshot(snapshot.Id)
+        var selectedSnapshot = snapshotData.Snapshot;
+        var postings = snapshotData.Postings
             .OrderByDescending(posting => posting.AnnualSalaryGbp.HasValue)
             .ThenByDescending(posting => posting.AnnualSalaryGbp.GetValueOrDefault())
-            .ThenByDescending(posting => posting.IsStarred)
             .ThenBy(posting => posting.Company)
             .ToArray();
         foreach (var posting in postings)
         {
-            Jobs.Add(new JobOpportunityViewModel(posting, SaveStarredState));
+            Jobs.Add(new JobOpportunityViewModel(posting, SaveOpportunityStatus));
         }
 
         RefreshLocationFilters();
         RefreshSourceFilters();
         RefreshFilteredJobs();
+        CapturedAtLabel = selectedSnapshot.CapturedAtUtc.ToLocalTime().ToString("ddd, dd MMM yyyy  HH:mm");
+        SnapshotKindLabel = selectedSnapshot.IsDemo ? "DEMO HISTORY" : string.Empty;
+        SelectedJob = FilteredJobs.FirstOrDefault();
+        HasNoJobs = Jobs.Count == 0;
+        if (HasNoJobs)
+        {
+            MedianSalaryLabel = "Not reported";
+            SalaryCoverageLabel = "0 of 0 roles";
+        }
+    }
 
-        var reportedSalaries = postings
-            .Select(posting => posting.AnnualSalaryGbp)
+    private void RefreshFilteredJobs()
+    {
+        var filteredJobs = Jobs.Where(job => MatchesPostingFilters(job.Posting)).ToArray();
+        _filteredJobs.ReplaceAll(filteredJobs);
+
+        HasNoFilteredJobs = Jobs.Count > 0 && filteredJobs.Length == 0;
+        ResultCount = filteredJobs.Length;
+        if (Jobs.Count == 0)
+        {
+            return;
+        }
+
+        var reportedSalaries = filteredJobs
+            .Select(job => job.Posting.AnnualSalaryGbp)
             .Where(salary => salary.HasValue)
             .Select(salary => salary!.Value)
             .OrderBy(salary => salary)
             .ToArray();
         var medianSalary = Median(reportedSalaries);
-        ResultCount = snapshot.AvailableJobCount;
-        MedianSalaryLabel = medianSalary.HasValue
-            ? $"£{medianSalary.Value:N0}"
-            : "Not reported";
-        SalaryCoverageLabel = $"{reportedSalaries.Length} of {snapshot.AvailableJobCount} roles";
-        CapturedAtLabel = snapshot.CapturedAtUtc.ToLocalTime().ToString("ddd, dd MMM yyyy  HH:mm");
-        SnapshotKindLabel = snapshot.IsDemo ? "DEMO HISTORY" : string.Empty;
-        SelectedJob = FilteredJobs.FirstOrDefault();
-        HasNoJobs = Jobs.Count == 0;
+        MedianSalaryLabel = medianSalary.HasValue ? $"£{medianSalary.Value:N0}" : "Not reported";
+        SalaryCoverageLabel = $"{reportedSalaries.Length} of {filteredJobs.Length} roles";
     }
 
-    private void RefreshFilteredJobs()
-    {
-        FilteredJobs.Clear();
-        var filter = SelectedLocationFilter;
-        foreach (var job in Jobs.Where(job => MatchesLocationFilter(job.Posting, filter)
-            && MatchesSourceFilter(job.Posting, SelectedSourceFilter)
-            && (!IsNewTodayFilterEnabled || WasAddedToHistoryToday(job.Posting))
-            && (!IsDotNetLanguageFilterEnabled || JobLanguageFilter.IsRelevant(job.Posting.Description))))
-        {
-            FilteredJobs.Add(job);
-        }
+    private bool MatchesPostingFilters(JobPosting posting) =>
+        MatchesLocationFilter(posting, SelectedLocationFilter)
+        && MatchesSourceFilter(posting, SelectedSourceFilter)
+        && MatchesStatusFilter(posting, SelectedStatusFilter)
+        && (!IsNewTodayFilterEnabled || WasAddedToHistoryToday(posting))
+        && (!IsDotNetLanguageFilterEnabled || _postingFactsById.GetValueOrDefault(posting.Id)?.IsDotNetRelevant != false);
 
-        HasNoFilteredJobs = Jobs.Count > 0 && FilteredJobs.Count == 0;
+    private static bool MatchesStatusFilter(JobPosting posting, LocationFilterOption? filter) =>
+        filter is null || filter.Key.Length == 0
+        || string.Equals(posting.Status, filter.Key, StringComparison.OrdinalIgnoreCase);
+
+    private void RefreshFilteredViews()
+    {
+        var selectedSnapshotId = SelectedPoint?.Snapshot.Id;
+        var selectedJobId = SelectedJob?.Posting.Id;
+        RebuildHistory(selectedSnapshotId);
+        RefreshFilteredJobs();
+        SelectedJob = FilteredJobs.FirstOrDefault(job => string.Equals(
+            job.Posting.Id,
+            selectedJobId,
+            StringComparison.OrdinalIgnoreCase)) ?? FilteredJobs.FirstOrDefault();
     }
 
     private static bool WasAddedToHistoryToday(JobPosting posting) => posting.FirstSeenUtc != default
@@ -922,15 +1059,16 @@ public sealed class MainWindowViewModel : ViewModelBase
         Process.Start(new ProcessStartInfo(jobUri.AbsoluteUri) { UseShellExecute = true });
     }
 
-    private void SaveStarredState(string jobId, bool isStarred)
+    private void SaveOpportunityStatus(string jobId, string status)
     {
-        var selectedSnapshotId = SelectedPoint?.Snapshot.Id;
-        var selectedJobId = SelectedJob?.Posting.Id;
-        _repository.SetStarred(jobId, isStarred);
-        PopulateHistory(_repository.GetHistory(), selectedSnapshotId);
-        SelectedJob = Jobs.FirstOrDefault(job => string.Equals(
-            job.Posting.Id,
-            selectedJobId,
-            StringComparison.OrdinalIgnoreCase)) ?? Jobs.FirstOrDefault();
+        _repository.SetStatus(jobId, status);
+        if (SelectedStatusFilter is null
+            || SelectedStatusFilter.Key.Length == 0
+            || string.Equals(SelectedStatusFilter.Key, status, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        RefreshFilteredViews();
     }
 }

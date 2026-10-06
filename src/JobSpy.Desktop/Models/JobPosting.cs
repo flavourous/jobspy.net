@@ -8,6 +8,11 @@ namespace JobSpy.Desktop.Models;
 
 public sealed class JobPosting
 {
+    private const decimal ContractWorkingDaysPerYear = 220;
+    private const decimal ContractWorkingHoursPerYear = 1650;
+    private const decimal StandardWorkingDaysPerYear = 260;
+    private const decimal StandardWorkingHoursPerYear = 1950;
+
     [BsonId]
     public string Id { get; set; } = string.Empty;
 
@@ -47,6 +52,18 @@ public sealed class JobPosting
     [BsonField("enrichedSalary")]
     public string? EnrichedSalary { get; set; }
 
+    [BsonField("enrichedSalaryAmount")]
+    public decimal? EnrichedSalaryAmount { get; set; }
+
+    [BsonField("enrichedSalaryMinAmount")]
+    public decimal? EnrichedSalaryMinAmount { get; set; }
+
+    [BsonField("enrichedSalaryCurrency")]
+    public string? EnrichedSalaryCurrency { get; set; }
+
+    [BsonField("enrichedSalaryInterval")]
+    public string? EnrichedSalaryInterval { get; set; }
+
     [BsonField("enrichedType")]
     public string? EnrichedType { get; set; }
 
@@ -69,6 +86,9 @@ public sealed class JobPosting
 
     public DateTime? DisappearedAtUtc { get; set; }
 
+    [BsonField("status")]
+    public string Status { get; set; } = OpportunityStatus.New;
+
     public bool IsStarred { get; set; }
 
     public bool? RequiresRelocation { get; set; }
@@ -87,19 +107,16 @@ public sealed class JobPosting
     {
         get
         {
-            var amounts = new[] { MinAmount, MaxAmount }
-                .Where(amount => amount.HasValue)
-                .Select(amount => amount!.Value.ToString("N0", CultureInfo.CurrentCulture))
-                .ToArray();
-            if (amounts.Length == 0)
+            var salaryRange = AnnualSalaryRangeGbp;
+            if (!salaryRange.HasValue)
             {
-                return EnrichedSalary ?? "Salary not listed";
+                return "Salary not listed";
             }
 
-            var salary = amounts.Length == 1 ? amounts[0] : string.Join("-", amounts);
-            var currency = string.IsNullOrWhiteSpace(Currency) ? string.Empty : $" {Currency}";
-            var interval = string.IsNullOrWhiteSpace(Interval) ? string.Empty : $" / {Interval}";
-            return $"{salary}{currency}{interval}";
+            var (minimum, maximum) = salaryRange.Value;
+            return minimum == maximum
+                ? $"£{maximum:N0} / year"
+                : $"£{minimum:N0}-{maximum:N0} / year";
         }
     }
 
@@ -115,33 +132,88 @@ public sealed class JobPosting
 
     [BsonIgnore]
     public decimal? AnnualSalaryGbp
+        => AnnualSalaryRangeGbp?.Max;
+
+    [BsonIgnore]
+    public (decimal Min, decimal Max)? AnnualSalaryRangeGbp
     {
         get
         {
-            if (!string.Equals(Currency, "GBP", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(Currency, "£", StringComparison.OrdinalIgnoreCase))
+            if (MinAmount.HasValue || MaxAmount.HasValue)
+            {
+                var salaryCurrency = string.IsNullOrWhiteSpace(Currency) ? "GBP" : Currency;
+                var minimum = MinAmount ?? MaxAmount!.Value;
+                var maximum = MaxAmount ?? MinAmount!.Value;
+                var annualMinimum = ToAnnualGbp(minimum, salaryCurrency, Interval);
+                var annualMaximum = ToAnnualGbp(maximum, salaryCurrency, Interval);
+                if (annualMinimum.HasValue && annualMaximum.HasValue)
+                {
+                    return (Math.Min(annualMinimum.Value, annualMaximum.Value), Math.Max(annualMinimum.Value, annualMaximum.Value));
+                }
+            }
+
+            if (!EnrichedSalaryAmount.HasValue)
             {
                 return null;
             }
 
-            var salary = MinAmount.HasValue && MaxAmount.HasValue
-                ? Math.Max(MinAmount.Value, MaxAmount.Value)
-                : MinAmount ?? MaxAmount;
-            if (!salary.HasValue)
-            {
-                return null;
-            }
-
-            return Interval?.Trim().ToLowerInvariant() switch
-            {
-                "year" or "yearly" or "annual" or "annually" => salary,
-                "month" or "monthly" => salary * 12,
-                "week" or "weekly" => salary * 52,
-                "day" or "daily" => salary * 260,
-                "hour" or "hourly" => salary * 1950,
-                _ => null,
-            };
+            var enrichedCurrency = EnrichedSalaryCurrency ?? (string.IsNullOrWhiteSpace(Currency) ? "GBP" : Currency);
+            var enrichedMinimum = EnrichedSalaryMinAmount ?? EnrichedSalaryAmount.Value;
+            var annualEnrichedMinimum = ToAnnualGbp(enrichedMinimum, enrichedCurrency, EnrichedSalaryInterval);
+            var annualEnrichedMaximum = ToAnnualGbp(EnrichedSalaryAmount.Value, enrichedCurrency, EnrichedSalaryInterval);
+            return annualEnrichedMinimum.HasValue && annualEnrichedMaximum.HasValue
+                ? (Math.Min(annualEnrichedMinimum.Value, annualEnrichedMaximum.Value), Math.Max(annualEnrichedMinimum.Value, annualEnrichedMaximum.Value))
+                : null;
         }
     }
 
+    private decimal? ToAnnualGbp(decimal amount, string? currency, string? interval)
+    {
+        var normalizedInterval = interval?.Trim().ToLowerInvariant();
+        var isContract = EffectiveJobType.Contains("contract", StringComparison.OrdinalIgnoreCase)
+            || EffectiveJobType.Contains("freelance", StringComparison.OrdinalIgnoreCase)
+            || EffectiveJobType.Contains("temporary", StringComparison.OrdinalIgnoreCase);
+        var annualAmount = normalizedInterval switch
+        {
+            "year" or "yr" or "yearly" or "annual" or "annually" or "per year" or "per annum" => amount,
+            "month" or "mo" or "monthly" or "per month" => amount * 12,
+            "week" or "wk" or "weekly" or "per week" => amount * 52,
+            "day" or "daily" or "per day" => amount * (isContract ? ContractWorkingDaysPerYear : StandardWorkingDaysPerYear),
+            "hour" or "hr" or "hourly" or "per hour" => amount * (isContract ? ContractWorkingHoursPerYear : StandardWorkingHoursPerYear),
+            null or "" or "none" or "unknown" when amount >= 10000 => amount,
+            _ => 0m,
+        };
+        if (annualAmount <= 0)
+        {
+            return null;
+        }
+
+        return Services.SalaryCurrencyConverter.ToGbp(annualAmount, currency);
+    }
+
+}
+
+public static class OpportunityStatus
+{
+    public const string New = "new";
+    public const string Ignored = "ignored";
+    public const string Interested = "interested";
+    public const string Applied = "applied";
+    public const string Interview = "interview";
+    public const string Offer = "offer";
+    public const string Rejected = "rejected";
+
+    public static readonly string[] All =
+    [
+        New,
+        Ignored,
+        Interested,
+        Applied,
+        Interview,
+        Offer,
+        Rejected,
+    ];
+
+    public static string Normalize(string? status) => All.FirstOrDefault(value =>
+        string.Equals(value, status, StringComparison.OrdinalIgnoreCase)) ?? New;
 }
