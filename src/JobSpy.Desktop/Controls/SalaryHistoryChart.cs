@@ -435,7 +435,7 @@ public sealed class SalaryHistoryChart : Control
 
     private static SolidColorBrush CreateBrush(SalaryChartSegment segment, bool isHovered)
     {
-        var color = GetEmploymentColor(segment.Posting.JobType);
+        var color = GetEmploymentColor(segment.Posting.EffectiveJobType);
         var opacity = (segment.NeedsRelocation ? 0.45 : 1) * (isHovered ? HoverOpacity : 1);
         return new SolidColorBrush(color, opacity);
     }

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System;
 using System.Linq;
 using JobSpy.Desktop.Models;
+using JobSpy.Desktop.Services;
 using LiteDB;
 
 namespace JobSpy.Desktop.Repositories;
@@ -22,6 +23,7 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
         _postings.EnsureIndex(posting => posting.JobUrl);
         _snapshots.EnsureIndex(snapshot => snapshot.CapturedAtUtc);
         _observations.EnsureIndex(observation => observation.SnapshotId);
+        EnrichStoredPostings();
     }
 
     public IReadOnlyList<JobPosting> GetAll() => _postings.FindAll()
@@ -109,6 +111,17 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
                     && string.Equals(existing.Location, incoming.Location, StringComparison.OrdinalIgnoreCase)
                     ? existing.RequiresRelocation ?? incoming.RequiresRelocation
                     : incoming.RequiresRelocation;
+                JobPostingEnricher.Enrich(incoming);
+                if (incoming.EnrichedSalary is null && existing?.EnrichmentVersion == JobPostingEnricher.CurrentVersion)
+                {
+                    incoming.EnrichedSalary = existing.EnrichedSalary;
+                }
+
+                if (incoming.EnrichedType is null && existing?.EnrichmentVersion == JobPostingEnricher.CurrentVersion)
+                {
+                    incoming.EnrichedType = existing.EnrichedType;
+                }
+
                 _postings.Upsert(incoming);
                 var searchTerms = searchTermsById[id];
                 if (searchTerms.Length == 0)
@@ -182,6 +195,33 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
     private static string BuildId(JobPosting posting) => string.IsNullOrWhiteSpace(posting.JobUrl)
         ? $"{posting.Site}|{posting.Company}|{posting.Title}|{posting.DatePosted}"
         : posting.JobUrl;
+
+    private void EnrichStoredPostings()
+    {
+        var outdatedPostings = _postings.Find(posting => posting.EnrichmentVersion < JobPostingEnricher.CurrentVersion)
+            .ToArray();
+        if (outdatedPostings.Length == 0)
+        {
+            return;
+        }
+
+        _database.BeginTrans();
+        try
+        {
+            foreach (var posting in outdatedPostings)
+            {
+                JobPostingEnricher.Enrich(posting);
+                _postings.Update(posting);
+            }
+
+            _database.Commit();
+        }
+        catch
+        {
+            _database.Rollback();
+            throw;
+        }
+    }
 
     public void Dispose() => _database.Dispose();
 }

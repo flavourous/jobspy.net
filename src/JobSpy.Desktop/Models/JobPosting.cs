@@ -44,6 +44,15 @@ public sealed class JobPosting
     [JsonPropertyName("currency")]
     public string? Currency { get; set; }
 
+    [BsonField("enrichedSalary")]
+    public string? EnrichedSalary { get; set; }
+
+    [BsonField("enrichedType")]
+    public string? EnrichedType { get; set; }
+
+    [BsonField("enrichmentVersion")]
+    public int EnrichmentVersion { get; set; }
+
     [JsonPropertyName("is_remote")]
     public bool IsRemote { get; set; }
 
@@ -68,7 +77,10 @@ public sealed class JobPosting
     public string DatePostedLabel => string.IsNullOrWhiteSpace(DatePosted) ? "Date not listed" : $"Posted {DatePosted}";
 
     [BsonIgnore]
-    public string EmploymentLabel => IsRemote ? "Remote" : JobType ?? string.Empty;
+    public string EffectiveJobType => !string.IsNullOrWhiteSpace(JobType) ? JobType : EnrichedType ?? string.Empty;
+
+    [BsonIgnore]
+    public string EmploymentLabel => IsRemote ? "Remote" : EffectiveJobType;
 
     [BsonIgnore]
     public string SalaryLabel
@@ -81,7 +93,7 @@ public sealed class JobPosting
                 .ToArray();
             if (amounts.Length == 0)
             {
-                return "Salary not listed";
+                return EnrichedSalary ?? "Salary not listed";
             }
 
             var salary = amounts.Length == 1 ? amounts[0] : string.Join("-", amounts);
