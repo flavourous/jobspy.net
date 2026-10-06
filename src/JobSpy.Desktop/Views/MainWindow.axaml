@@ -87,6 +87,9 @@
                         <CheckBox Content="New openings today" Height="10"  Margin="0,-3,0,0"
                                   IsChecked="{Binding IsNewTodayFilterEnabled}" VerticalAlignment="Center"
                                   FontSize="11" ToolTip.Tip="Show jobs posted today" />
+                        <CheckBox Content="C# / .NET only" Height="10" Margin="0,-3,0,0"
+                                  IsChecked="{Binding IsDotNetLanguageFilterEnabled}" VerticalAlignment="Center"
+                                  FontSize="11" ToolTip.Tip="Keep roles mentioning C# or .NET; exclude roles focused on other programming languages" />
                     </StackPanel>
                 </StackPanel>
             </Grid>

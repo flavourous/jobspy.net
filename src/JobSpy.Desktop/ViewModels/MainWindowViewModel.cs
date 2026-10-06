@@ -159,6 +159,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     private LocationFilterOption? _selectedLocationFilter;
     private LocationFilterOption? _selectedSourceFilter;
     private bool _isNewTodayFilterEnabled;
+    private bool _isDotNetLanguageFilterEnabled;
     private string _medianSalaryLabel = "No salary data";
     private string _salaryCoverageLabel = "No reported GBP salaries";
     private string _capturedAtLabel = "No scan selected";
@@ -396,6 +397,25 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
     }
 
+    public bool IsDotNetLanguageFilterEnabled
+    {
+        get => _isDotNetLanguageFilterEnabled;
+        set
+        {
+            if (_isDotNetLanguageFilterEnabled == value)
+            {
+                return;
+            }
+
+            this.RaiseAndSetIfChanged(ref _isDotNetLanguageFilterEnabled, value);
+            RefreshFilteredJobs();
+            if (SelectedJob is null || !FilteredJobs.Contains(SelectedJob))
+            {
+                SelectedJob = FilteredJobs.FirstOrDefault();
+            }
+        }
+    }
+
     public string MedianSalaryLabel
     {
         get => _medianSalaryLabel;
@@ -437,8 +457,10 @@ public sealed class MainWindowViewModel : ViewModelBase
         {
             var result = await Task.Run(async () =>
             {
-                var searchTasks = SearchTerms.SelectMany(term => SearchSites.Select(site =>
-                    Task.Run(() =>
+                var resultSets = new List<IReadOnlyList<JobPosting>>();
+                foreach (var term in SearchTerms)
+                {
+                    var sourceTasks = SearchSites.Select(site => Task.Run(() =>
                     {
                         progress.Report(new JobSearchProgress("searching", site, 0, SearchTerm: term));
                         try
@@ -469,8 +491,10 @@ public sealed class MainWindowViewModel : ViewModelBase
                                 Error: exception.GetBaseException().Message));
                             throw;
                         }
-                    }))).ToArray();
-                var resultSets = await Task.WhenAll(searchTasks);
+                    })).ToArray();
+                    resultSets.AddRange(await Task.WhenAll(sourceTasks));
+                }
+
                 var found = resultSets.SelectMany(postings => postings).ToList();
 
                 var snapshot = _repository.RecordScan(found, string.Join(", ", SearchTerms), DateTime.UtcNow);
@@ -709,7 +733,8 @@ public sealed class MainWindowViewModel : ViewModelBase
         var filter = SelectedLocationFilter;
         foreach (var job in Jobs.Where(job => MatchesLocationFilter(job.Posting, filter)
             && MatchesSourceFilter(job.Posting, SelectedSourceFilter)
-            && (!IsNewTodayFilterEnabled || WasAddedToHistoryToday(job.Posting))))
+            && (!IsNewTodayFilterEnabled || WasAddedToHistoryToday(job.Posting))
+            && (!IsDotNetLanguageFilterEnabled || JobLanguageFilter.IsRelevant(job.Posting.Description))))
         {
             FilteredJobs.Add(job);
         }
