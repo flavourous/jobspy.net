@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Reactive;
 using System.Reactive.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using JobSpy.Desktop.Models;
 using JobSpy.Desktop.Repositories;
@@ -136,6 +137,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         "Tech Lead C#",
         "Lead Software Engineer C#",
+        "Senior Software Engineer C#",
         "Principal Software Engineer C#",
         "Staff Software Engineer C#",
         "Development Manager Software C#",
@@ -149,6 +151,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     private readonly Dictionary<(string SearchTerm, string Site), int> _responseCounts = new();
     private string _statusMessage;
     private bool _isSearching;
+    private bool _isScanProgressOpen;
+    private bool _canCloseScanProgress;
     private int _finishedSearchTasks;
     private SnapshotChartPoint? _selectedPoint;
     private JobOpportunityViewModel? _selectedJob;
@@ -164,6 +168,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     private string _salaryCoverageLabel = "No reported GBP salaries";
     private string _capturedAtLabel = "No scan selected";
     private string _snapshotKindLabel = string.Empty;
+    private string _scanElapsedLabel = "Elapsed 00:00:00";
 
     public MainWindowViewModel(IJobRepository repository, IJobSearchService searchService)
     {
@@ -184,6 +189,13 @@ public sealed class MainWindowViewModel : ViewModelBase
                 return Unit.Default;
             },
             this.WhenAnyValue(viewModel => viewModel.IsSearching).Select(isSearching => !isSearching));
+        CloseScanProgressCommand = ReactiveCommand.Create(
+            () =>
+            {
+                IsScanProgressOpen = false;
+                return Unit.Default;
+            },
+            this.WhenAnyValue(viewModel => viewModel.CanCloseScanProgress));
         SelectSnapshotCommand = ReactiveCommand.Create<SnapshotChartPoint, Unit>(point =>
         {
             SelectedPoint = point;
@@ -225,6 +237,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ObservableCollection<LocationFilterOption> SourceFilters { get; }
 
     public ReactiveCommand<ReactiveUI.Primitives.RxVoid, Unit> SearchCommand { get; }
+    public ReactiveCommand<ReactiveUI.Primitives.RxVoid, Unit> CloseScanProgressCommand { get; }
 
     public ReactiveCommand<SnapshotChartPoint, Unit> SelectSnapshotCommand { get; }
 
@@ -251,6 +264,26 @@ public sealed class MainWindowViewModel : ViewModelBase
         get => _isSearching;
         private set => this.RaiseAndSetIfChanged(ref _isSearching, value);
     }
+
+    public bool IsScanProgressOpen
+    {
+        get => _isScanProgressOpen;
+        private set => this.RaiseAndSetIfChanged(ref _isScanProgressOpen, value);
+    }
+
+    public bool CanCloseScanProgress
+    {
+        get => _canCloseScanProgress;
+        private set => this.RaiseAndSetIfChanged(ref _canCloseScanProgress, value);
+    }
+
+    public string ScanElapsedLabel
+    {
+        get => _scanElapsedLabel;
+        private set => this.RaiseAndSetIfChanged(ref _scanElapsedLabel, value);
+    }
+
+    public string SearchConfigurationLabel => $"{SearchTerms.Length} profiles · {SearchSites.Length} boards";
 
     public SnapshotChartPoint? SelectedPoint
     {
@@ -442,7 +475,12 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     private async Task SearchAsync()
     {
+        IsScanProgressOpen = true;
+        CanCloseScanProgress = false;
         IsSearching = true;
+        var scanStopwatch = Stopwatch.StartNew();
+        using var elapsedCancellation = new CancellationTokenSource();
+        var elapsedUpdater = UpdateScanElapsedLabelAsync(scanStopwatch, elapsedCancellation.Token);
         foreach (var row in ScanProgressRows)
         {
             row.Reset();
@@ -457,44 +495,39 @@ public sealed class MainWindowViewModel : ViewModelBase
         {
             var result = await Task.Run(async () =>
             {
-                var resultSets = new List<IReadOnlyList<JobPosting>>();
-                foreach (var term in SearchTerms)
+                var searchTasks = SearchTerms.SelectMany(term => SearchSites.Select(site => Task.Run(() =>
                 {
-                    var sourceTasks = SearchSites.Select(site => Task.Run(() =>
+                    progress.Report(new JobSearchProgress("searching", site, 0, SearchTerm: term));
+                    try
                     {
-                        progress.Report(new JobSearchProgress("searching", site, 0, SearchTerm: term));
-                        try
+                        var postings = _searchService.Search(
+                            new JobSearchRequest(term, SearchLocation, [site]),
+                            progress);
+                        foreach (var posting in postings)
                         {
-                            var postings = _searchService.Search(
-                                new JobSearchRequest(term, SearchLocation, [site]),
-                                progress);
-                            foreach (var posting in postings)
-                            {
-                                posting.SearchTerm = term;
-                            }
-
-                            progress.Report(new JobSearchProgress(
-                                "complete",
-                                site,
-                                postings.Count,
-                                postings.Count,
-                                SearchTerm: term));
-                            return postings;
+                            posting.SearchTerm = term;
                         }
-                        catch (Exception exception)
-                        {
-                            progress.Report(new JobSearchProgress(
-                                "failed",
-                                site,
-                                0,
-                                SearchTerm: term,
-                                Error: exception.GetBaseException().Message));
-                            throw;
-                        }
-                    })).ToArray();
-                    resultSets.AddRange(await Task.WhenAll(sourceTasks));
-                }
 
+                        progress.Report(new JobSearchProgress(
+                            "complete",
+                            site,
+                            postings.Count,
+                            postings.Count,
+                            SearchTerm: term));
+                        return postings;
+                    }
+                    catch (Exception exception)
+                    {
+                        progress.Report(new JobSearchProgress(
+                            "failed",
+                            site,
+                            0,
+                            SearchTerm: term,
+                            Error: exception.GetBaseException().Message));
+                        throw;
+                    }
+                }))).ToArray();
+                var resultSets = await Task.WhenAll(searchTasks);
                 var found = resultSets.SelectMany(postings => postings).ToList();
 
                 var snapshot = _repository.RecordScan(found, string.Join(", ", SearchTerms), DateTime.UtcNow);
@@ -517,9 +550,34 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
         finally
         {
+            scanStopwatch.Stop();
+            elapsedCancellation.Cancel();
+            await elapsedUpdater;
             IsSearching = false;
+            CanCloseScanProgress = true;
         }
     }
+
+    private async Task UpdateScanElapsedLabelAsync(Stopwatch stopwatch, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            ScanElapsedLabel = FormatElapsed(stopwatch.Elapsed);
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+        }
+
+        ScanElapsedLabel = FormatElapsed(stopwatch.Elapsed);
+    }
+
+    private static string FormatElapsed(TimeSpan elapsed) =>
+        $"Elapsed {(int)elapsed.TotalHours:00}:{elapsed.Minutes:00}:{elapsed.Seconds:00}";
 
     private void ApplySearchProgress(JobSearchProgress progress)
     {

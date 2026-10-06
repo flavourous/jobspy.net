@@ -235,7 +235,7 @@
         </Grid>
 
         <Border Grid.RowSpan="3" Background="#B51B2D26"
-                IsVisible="{Binding IsSearching}">
+                IsVisible="{Binding IsScanProgressOpen}">
             <Grid HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24">
                 <Border Width="960" MaxHeight="700" Background="#FFFFFF"
                         BorderBrush="#D5DED8" BorderThickness="1" CornerRadius="6">
@@ -255,8 +255,14 @@
                                     <TextBlock Text="{Binding ResponseCountLabel}" FontSize="11"
                                                FontWeight="SemiBold" Foreground="#F1B45A"
                                                HorizontalAlignment="Right" />
-                                    <TextBlock Text="5 profiles · 3 boards" FontSize="10"
+                                        <TextBlock Text="{Binding ScanElapsedLabel}" FontSize="10"
                                                Foreground="#C8DDD1" HorizontalAlignment="Right" />
+                                        <TextBlock Text="{Binding SearchConfigurationLabel}" FontSize="10"
+                                               Foreground="#C8DDD1" HorizontalAlignment="Right" />
+                                        <Button Content="Close" Command="{Binding CloseScanProgressCommand}"
+                                            IsVisible="{Binding CanCloseScanProgress}"
+                                            HorizontalAlignment="Right" Padding="12,5"
+                                            Background="#F1B45A" Foreground="#25352C" />
                                 </StackPanel>
                             </Grid>
                         </Border>
