@@ -33,6 +33,8 @@ public sealed class SalaryHistoryChart : Control
     private IReadOnlyList<Dictionary<string, SegmentSlot>> _renderedSlotMaps = Array.Empty<Dictionary<string, SegmentSlot>>();
     private readonly HashSet<SnapshotChartPoint> _observedPoints = new();
     private string? _hoveredJobId;
+    private double _renderedColumnSpacing = ColumnSpacing;
+    private double _renderedBarWidth = BarWidth;
 
     public static readonly StyledProperty<ObservableCollection<SnapshotChartPoint>?> ItemsSourceProperty =
         AvaloniaProperty.Register<SalaryHistoryChart, ObservableCollection<SnapshotChartPoint>?>(nameof(ItemsSource));
@@ -46,10 +48,13 @@ public sealed class SalaryHistoryChart : Control
     public static readonly StyledProperty<ICommand?> RunSelectionCommandProperty =
         AvaloniaProperty.Register<SalaryHistoryChart, ICommand?>(nameof(RunSelectionCommand));
 
+    public static readonly StyledProperty<bool> IsExpandedProperty =
+        AvaloniaProperty.Register<SalaryHistoryChart, bool>(nameof(IsExpanded));
+
     static SalaryHistoryChart()
     {
-        AffectsRender<SalaryHistoryChart>(ItemsSourceProperty, SelectedPointProperty);
-        AffectsMeasure<SalaryHistoryChart>(ItemsSourceProperty);
+        AffectsRender<SalaryHistoryChart>(ItemsSourceProperty, SelectedPointProperty, IsExpandedProperty);
+        AffectsMeasure<SalaryHistoryChart>(ItemsSourceProperty, IsExpandedProperty);
     }
 
     public ObservableCollection<SnapshotChartPoint>? ItemsSource
@@ -76,10 +81,24 @@ public sealed class SalaryHistoryChart : Control
         set => SetValue(RunSelectionCommandProperty, value);
     }
 
+    public bool IsExpanded
+    {
+        get => GetValue(IsExpandedProperty);
+        set => SetValue(IsExpandedProperty, value);
+    }
+
     protected override Size MeasureOverride(Size availableSize)
     {
-        var width = Math.Max(240, (ItemsSource?.Count ?? 0) * ColumnSpacing + SidePadding);
-        return new Size(width, 230);
+        var naturalWidth = Math.Max(240, (ItemsSource?.Count ?? 0) * ColumnSpacing + SidePadding);
+        if (!IsExpanded)
+        {
+            return new Size(naturalWidth, 230);
+        }
+
+        var height = double.IsFinite(availableSize.Height)
+            ? Math.Max(230, availableSize.Height)
+            : 230;
+        return new Size(naturalWidth, height);
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -124,7 +143,13 @@ public sealed class SalaryHistoryChart : Control
             .Select(point => point.Segments.Sum(segment => segment.SalaryGbp))
             .DefaultIfEmpty(0)
             .Max();
-        var plotHeight = PlotBottom - PlotTop;
+        var plotTop = IsExpanded ? 48 : PlotTop;
+        var plotBottom = IsExpanded ? Math.Max(plotTop + 100, Bounds.Height - 52) : PlotBottom;
+        var columnSpacing = ColumnSpacing;
+        var barWidth = BarWidth;
+        _renderedColumnSpacing = columnSpacing;
+        _renderedBarWidth = barWidth;
+        var plotHeight = plotBottom - plotTop;
         var maxSegmentCount = points.Max(point => point.Segments.Count);
         var rowGap = maxSegmentCount > 1
             ? Math.Min(RowGap, plotHeight * 0.2 / (maxSegmentCount - 1))
@@ -145,14 +170,21 @@ public sealed class SalaryHistoryChart : Control
 
         for (var index = 0; index < points.Count; index++)
         {
-            var x = SidePadding + index * ColumnSpacing;
+            var x = SidePadding + index * columnSpacing;
             var slots = new Dictionary<string, SegmentSlot>(StringComparer.Ordinal);
-            var y = PlotBottom;
+            var y = plotBottom;
             for (var segmentIndex = 0; segmentIndex < points[index].Segments.Count; segmentIndex++)
             {
                 var segment = points[index].Segments[segmentIndex];
                 var height = salaryScale * (double)segment.SalaryGbp;
-                slots[segment.Posting.Id] = new SegmentSlot(segment, x, y - height, y, height);
+                slots[segment.Posting.Id] = new SegmentSlot(
+                    segment,
+                    x,
+                    x - barWidth / 2,
+                    x + barWidth / 2,
+                    y - height,
+                    y,
+                    height);
                 y -= height;
                 if (segmentIndex < points[index].Segments.Count - 1)
                 {
@@ -165,9 +197,9 @@ public sealed class SalaryHistoryChart : Control
 
         _renderedSlotMaps = slotMaps;
         DrawSelectionBands(context, points);
-        DrawScale(context, maxValue, salaryScale);
+        DrawScale(context, maxValue, salaryScale, plotBottom);
         DrawContinuity(context, points, slotMaps);
-        DrawColumns(context, points, slotMaps, salaryScale);
+        DrawColumns(context, points, slotMaps, salaryScale, columnSpacing, barWidth, plotBottom);
     }
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
@@ -224,8 +256,9 @@ public sealed class SalaryHistoryChart : Control
 
     private SnapshotChartPoint? FindPointAtX(double x, IReadOnlyList<SnapshotChartPoint> points)
     {
-        var index = (int)Math.Round((x - SidePadding) / ColumnSpacing);
-        if (index < 0 || index >= points.Count || Math.Abs(x - (SidePadding + index * ColumnSpacing)) > ColumnSpacing / 2)
+        var index = (int)Math.Round((x - SidePadding) / _renderedColumnSpacing);
+        if (index < 0 || index >= points.Count
+            || Math.Abs(x - (SidePadding + index * _renderedColumnSpacing)) > _renderedColumnSpacing / 2)
         {
             return null;
         }
@@ -243,8 +276,8 @@ public sealed class SalaryHistoryChart : Control
 
         for (var index = 0; index < _renderedSlotMaps.Count; index++)
         {
-            var columnX = SidePadding + index * ColumnSpacing;
-            if (Math.Abs(position.X - columnX) > BarWidth / 2)
+            var columnX = SidePadding + index * _renderedColumnSpacing;
+            if (Math.Abs(position.X - columnX) > _renderedBarWidth / 2)
             {
                 continue;
             }
@@ -256,8 +289,8 @@ public sealed class SalaryHistoryChart : Control
 
         for (var index = 0; index < _renderedSlotMaps.Count - 1; index++)
         {
-            var leftEdge = SidePadding + index * ColumnSpacing + BarWidth / 2;
-            var rightEdge = SidePadding + (index + 1) * ColumnSpacing - BarWidth / 2;
+            var leftEdge = SidePadding + index * _renderedColumnSpacing + _renderedBarWidth / 2;
+            var rightEdge = SidePadding + (index + 1) * _renderedColumnSpacing - _renderedBarWidth / 2;
             if (position.X < leftEdge || position.X > rightEdge)
             {
                 continue;
@@ -283,13 +316,13 @@ public sealed class SalaryHistoryChart : Control
         return null;
     }
 
-    private void DrawScale(DrawingContext context, double maxValue, double salaryScale)
+    private void DrawScale(DrawingContext context, double maxValue, double salaryScale, double plotBottom)
     {
         var gridPen = new Pen(new SolidColorBrush(GridColor), 1);
         for (var tick = 0; tick <= 4; tick++)
         {
             var amount = maxValue * tick / 4;
-            var y = PlotBottom - salaryScale * amount;
+            var y = plotBottom - salaryScale * amount;
             context.DrawLine(gridPen, new Point(SidePadding - 24, y), new Point(Bounds.Width, y));
             DrawText(context, FormatSalary(amount), new Point(0, y - 7), 9, TextColor);
         }
@@ -312,8 +345,8 @@ public sealed class SalaryHistoryChart : Control
             return;
         }
 
-        var x = SidePadding + selectedIndex * ColumnSpacing;
-        var selection = new Rect(x - ColumnSpacing / 2 + 4, 0, ColumnSpacing - 8, Bounds.Height);
+        var x = SidePadding + selectedIndex * _renderedColumnSpacing;
+        var selection = new Rect(x - _renderedColumnSpacing / 2 + 4, 0, _renderedColumnSpacing - 8, Bounds.Height);
         context.DrawRectangle(new SolidColorBrush(Color.Parse("#F2F6F3")), null, selection);
     }
 
@@ -364,13 +397,16 @@ public sealed class SalaryHistoryChart : Control
         DrawingContext context,
         IReadOnlyList<SnapshotChartPoint> points,
         IReadOnlyList<Dictionary<string, SegmentSlot>> slotMaps,
-        double salaryScale)
+        double salaryScale,
+        double columnSpacing,
+        double barWidth,
+        double plotBottom)
     {
         var axisPen = new Pen(new SolidColorBrush(Color.Parse("#BFC9C2")), 1);
         for (var index = 0; index < points.Count; index++)
         {
             var point = points[index];
-            var x = SidePadding + index * ColumnSpacing;
+            var x = SidePadding + index * columnSpacing;
             var total = point.Segments.Sum(segment => segment.SalaryGbp);
             var totalHeight = salaryScale * (double)total;
             DrawCenteredText(context, $"{point.Segments.Count} roles", x, 2, 9, TextColor);
@@ -378,17 +414,17 @@ public sealed class SalaryHistoryChart : Control
                 ? $"Median {FormatSalary((double)point.MedianSalaryGbp.Value)}"
                 : "Median n/a", x, 15, 9, TextColor);
 
-            context.DrawLine(axisPen, new Point(x - BarWidth / 2, PlotBottom), new Point(x + BarWidth / 2, PlotBottom));
+            context.DrawLine(axisPen, new Point(x - barWidth / 2, plotBottom), new Point(x + barWidth / 2, plotBottom));
             foreach (var slot in slotMaps[index].Values)
             {
                 DrawSegment(context, slot, slot.Segment.Posting.Id == _hoveredJobId);
             }
 
-            DrawCenteredText(context, point.DateLabel, x, 190, 10, TextColor);
-            DrawCenteredText(context, point.TimeLabel, x, 205, 9, TextColor);
+            DrawCenteredText(context, point.DateLabel, x, plotBottom + 6, 10, TextColor);
+            DrawCenteredText(context, point.TimeLabel, x, plotBottom + 21, 9, TextColor);
             if (totalHeight == 0)
             {
-                DrawCenteredText(context, "no salary data", x, PlotBottom - 16, 8, TextColor);
+                DrawCenteredText(context, "no salary data", x, plotBottom - 16, 8, TextColor);
             }
         }
     }
@@ -400,7 +436,7 @@ public sealed class SalaryHistoryChart : Control
             return;
         }
 
-        var rect = new Rect(slot.Left, slot.Top, BarWidth, slot.Height);
+        var rect = new Rect(slot.Left, slot.Top, slot.Right - slot.Left, slot.Height);
         context.DrawRectangle(CreateBrush(slot.Segment, isHovered), null, rect);
         if (slot.Segment.IsManagement)
         {
@@ -540,10 +576,12 @@ public sealed class SalaryHistoryChart : Control
         }
     }
 
-    private sealed record SegmentSlot(SalaryChartSegment Segment, double CenterX, double Top, double Bottom, double Height)
-    {
-        public double Left => CenterX - BarWidth / 2;
-
-        public double Right => CenterX + BarWidth / 2;
-    }
+    private sealed record SegmentSlot(
+        SalaryChartSegment Segment,
+        double CenterX,
+        double Left,
+        double Right,
+        double Top,
+        double Bottom,
+        double Height);
 }

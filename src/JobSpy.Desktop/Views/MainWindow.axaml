@@ -101,6 +101,33 @@
             <Setter Property="BorderBrush" Value="#E1E6E1" />
             <Setter Property="Foreground" Value="#89948D" />
         </Style>
+        <Style Selector="Button.graph-icon-button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="#52615A" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.graph-icon-button:pointerover">
+            <Setter Property="Background" Value="#EAF3EC" />
+            <Setter Property="Foreground" Value="#174B3D" />
+        </Style>
+        <Style Selector="Button.graph-icon-button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#EAF3EC" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="#174B3D" />
+        </Style>
+        <Style Selector="Button.graph-icon-button:pressed">
+            <Setter Property="Background" Value="#D4E5D8" />
+            <Setter Property="Foreground" Value="#174B3D" />
+        </Style>
+        <Style Selector="Button.graph-icon-button:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#D4E5D8" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="#174B3D" />
+        </Style>
     </Window.Styles>
 
     <Grid RowDefinitions="Auto,Auto,*">
@@ -171,9 +198,9 @@
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
-                        <CheckBox Content="New openings today" Height="10"  Margin="0,-3,0,0"
-                                  IsChecked="{Binding IsNewTodayFilterEnabled}" VerticalAlignment="Center"
-                                  FontSize="11" ToolTip.Tip="Show jobs posted today" />
+                        <CheckBox Content="Not available in latest scan" Height="10" Margin="0,-3,0,0"
+                                  IsChecked="{Binding IsNotAvailableInLatestScanFilterEnabled}" VerticalAlignment="Center"
+                                  FontSize="11" ToolTip.Tip="Show postings not observed in the latest scan" />
                         <CheckBox Content="C# / .NET only" Height="10" Margin="0,-3,0,0"
                                   IsChecked="{Binding IsDotNetLanguageFilterEnabled}" VerticalAlignment="Center"
                                   FontSize="11" ToolTip.Tip="Keep roles mentioning C# or .NET; exclude roles focused on other programming languages" />
@@ -183,7 +210,7 @@
 
             <Border Grid.Row="1" Background="White" BorderBrush="#DEE5DF" BorderThickness="1" Padding="16,13">
                 <Grid RowDefinitions="Auto,*" RowSpacing="8">
-                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto"
+                      <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto"
                           RowSpacing="5" VerticalAlignment="Center">
                         <StackPanel Spacing="2">
                             <TextBlock Text="Scan history" FontSize="16" FontWeight="SemiBold" Foreground="#20382E" />
@@ -198,7 +225,12 @@
                             <StackPanel Classes="legend-item" Orientation="Horizontal" Spacing="4"><Border Width="18" Height="16" Background="#168264" ClipToBounds="True"><Border Background="#1A7030A0" /></Border><TextBlock Text="Management" FontSize="10" Foreground="#52615A" /></StackPanel>
                             <StackPanel Classes="legend-item" Orientation="Horizontal" Spacing="4"><Border Width="18" Height="16" Background="#E4EAE5" ClipToBounds="True"><TextBlock Text="////" Foreground="#283A32" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border><TextBlock Text="Salary estimated (striped)" FontSize="10" Foreground="#52615A" /></StackPanel>
                         </StackPanel>
-                        <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding StatusMessage}"
+                        <Button Grid.Column="2" Content="⛶" Classes="graph-icon-button"
+                            Command="{Binding ToggleChartMaximizedCommand}"
+                            Width="36" Height="36" FontSize="26"
+                            HorizontalAlignment="Right" VerticalAlignment="Center" Margin="8,0,0,0"
+                            ToolTip.Tip="Maximize scan history" />
+                        <TextBlock Grid.Row="1" Grid.ColumnSpan="3" Text="{Binding StatusMessage}"
                                    FontSize="10" Foreground="#68786F" TextTrimming="CharacterEllipsis"
                                    ToolTip.Tip="{Binding StatusMessage}" />
                     </Grid>
@@ -303,9 +335,15 @@
                                            Foreground="#20382E" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding SelectedJobCompany}" FontSize="13" Foreground="#52615A" />
                             </StackPanel>
-                                <Button Grid.Column="1" Content="Open posting" Classes="open-posting-button"
-                                    Command="{Binding OpenSelectedJobCommand}"
-                                    Padding="12,7" VerticalAlignment="Top" />
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                    <Button Content="Open posting" Classes="open-posting-button"
+                                        Command="{Binding OpenSelectedJobCommand}"
+                                        Padding="12,7" />
+                                    <Button Content="Mark available" Classes="open-posting-button"
+                                        IsVisible="{Binding SelectedJobNeedsAvailabilityRepair}"
+                                        Command="{Binding MarkSelectedJobAvailableCommand}"
+                                        Padding="12,7" />
+                                </StackPanel>
                         </Grid>
                         <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12">
                             <TextBlock Text="{Binding SelectedJobSalaryLabel}" FontSize="13" FontWeight="SemiBold" Foreground="#16775C" />
@@ -404,6 +442,37 @@
                     </Grid>
                 </Border>
             </Grid>
+        </Border>
+        <Border Grid.RowSpan="3" Background="#B51B2D26"
+                IsVisible="{Binding IsChartMaximized}" Padding="14">
+            <Border Background="White" BorderBrush="#D5DED8" BorderThickness="1"
+                    CornerRadius="6" Padding="12">
+                <Grid RowDefinitions="Auto,*" RowSpacing="8">
+                    <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="SCAN HISTORY" FontSize="10" FontWeight="Bold"
+                                       Foreground="#718078" />
+                            <TextBlock Text="{Binding CapturedAtLabel}" FontSize="15"
+                                       FontWeight="SemiBold" Foreground="#20382E" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="×" Classes="graph-icon-button"
+                            Command="{Binding ToggleChartMaximizedCommand}"
+                            Width="36" Height="36" FontSize="24"
+                            HorizontalAlignment="Right" VerticalAlignment="Center"
+                            ToolTip.Tip="Close maximized chart" />
+                    </Grid>
+                    <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto"
+                                  VerticalScrollBarVisibility="Disabled">
+                        <controls:SalaryHistoryChart ItemsSource="{Binding ChartPoints}"
+                                                     SelectedPoint="{Binding SelectedPoint}"
+                                                     SelectionCommand="{Binding SelectSnapshotCommand}"
+                                                     RunSelectionCommand="{Binding SelectRunCommand}"
+                                                     IsExpanded="True"
+                                                     HorizontalAlignment="Left"
+                                                     VerticalAlignment="Stretch" />
+                    </ScrollViewer>
+                </Grid>
+            </Border>
         </Border>
     </Grid>
 </Window>

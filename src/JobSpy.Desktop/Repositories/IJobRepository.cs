@@ -13,5 +13,6 @@ public interface IJobRepository
     IReadOnlyList<JobObservation> GetAllObservations();
     JobSearchSnapshot RecordScan(IEnumerable<JobPosting> postings, string searchProfile, DateTime capturedAtUtc, bool isDemo = false);
     void SetStatus(string jobId, string status);
+    void MarkAvailable(string jobId);
     void SetRelocationRequired(string jobId, bool requiresRelocation);
 }

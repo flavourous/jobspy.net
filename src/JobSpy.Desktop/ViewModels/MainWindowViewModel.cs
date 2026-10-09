@@ -170,12 +170,15 @@ public sealed class MainWindowViewModel : ViewModelBase
     private readonly BatchObservableCollection<JobOpportunityViewModel> _filteredJobs;
     private SnapshotHistoryData[] _snapshotHistory = Array.Empty<SnapshotHistoryData>();
     private Dictionary<string, PostingFacts> _postingFactsById = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _latestSnapshotJobIds = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _jobIdsMissingSnapshotObservations = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, SnapshotChartPoint> _chartPointsBySnapshotId = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<(string SearchTerm, string Site), int> _responseCounts = new();
     private string _statusMessage;
     private bool _isSearching;
     private bool _isScanProgressOpen;
     private bool _canCloseScanProgress;
+    private bool _isChartMaximized;
     private int _finishedSearchTasks;
     private SnapshotChartPoint? _selectedPoint;
     private JobOpportunityViewModel? _selectedJob;
@@ -186,7 +189,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     private LocationFilterOption? _selectedLocationFilter;
     private LocationFilterOption? _selectedSourceFilter;
     private LocationFilterOption? _selectedStatusFilter;
-    private bool _isNewTodayFilterEnabled;
+    private bool _isNotAvailableInLatestScanFilterEnabled;
     private bool _isDotNetLanguageFilterEnabled;
     private string _medianSalaryLabel = "No salary data";
     private string _salaryCoverageLabel = "No reported GBP salaries";
@@ -228,6 +231,11 @@ public sealed class MainWindowViewModel : ViewModelBase
                 return Unit.Default;
             },
             this.WhenAnyValue(viewModel => viewModel.CanCloseScanProgress));
+        ToggleChartMaximizedCommand = ReactiveCommand.Create(() =>
+        {
+            IsChartMaximized = !IsChartMaximized;
+            return Unit.Default;
+        });
         SelectSnapshotCommand = ReactiveCommand.Create<SnapshotChartPoint, Unit>(point =>
         {
             SelectedPoint = point;
@@ -248,6 +256,12 @@ public sealed class MainWindowViewModel : ViewModelBase
             return Unit.Default;
         }, this.WhenAnyValue(viewModel => viewModel.SelectedJob)
             .Select(job => !string.IsNullOrWhiteSpace(job?.Posting.JobUrl)));
+        MarkSelectedJobAvailableCommand = ReactiveCommand.Create(() =>
+        {
+            MarkSelectedJobAvailable();
+            return Unit.Default;
+        }, this.WhenAnyValue(viewModel => viewModel.SelectedJob)
+            .Select(job => job?.NeedsAvailabilityRepair == true));
 
         PopulateHistory(_repository.GetHistory(), null);
         _statusMessage = ChartPoints.Count == 0
@@ -274,11 +288,15 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ReactiveCommand<ReactiveUI.Primitives.RxVoid, Unit> SearchCommand { get; }
     public ReactiveCommand<ReactiveUI.Primitives.RxVoid, Unit> CloseScanProgressCommand { get; }
 
+    public ReactiveCommand<ReactiveUI.Primitives.RxVoid, Unit> ToggleChartMaximizedCommand { get; }
+
     public ReactiveCommand<SnapshotChartPoint, Unit> SelectSnapshotCommand { get; }
 
     public ReactiveCommand<SalaryChartRunSelection, Unit> SelectRunCommand { get; }
 
     public ReactiveCommand<ReactiveUI.Primitives.RxVoid, Unit> OpenSelectedJobCommand { get; }
+
+    public ReactiveCommand<ReactiveUI.Primitives.RxVoid, Unit> MarkSelectedJobAvailableCommand { get; }
 
     public string ScanProgressSummary => $"{_finishedSearchTasks} / {ScanProgressRows.Count} tasks finished";
 
@@ -310,6 +328,12 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         get => _canCloseScanProgress;
         private set => this.RaiseAndSetIfChanged(ref _canCloseScanProgress, value);
+    }
+
+    public bool IsChartMaximized
+    {
+        get => _isChartMaximized;
+        private set => this.RaiseAndSetIfChanged(ref _isChartMaximized, value);
     }
 
     public string ScanElapsedLabel
@@ -360,6 +384,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             this.RaisePropertyChanged(nameof(SelectedJobTrackedSinceLabel));
             this.RaisePropertyChanged(nameof(SelectedJobLastSeenLabel));
             this.RaisePropertyChanged(nameof(SelectedJobAvailabilityLabel));
+            this.RaisePropertyChanged(nameof(SelectedJobNeedsAvailabilityRepair));
             this.RaisePropertyChanged(nameof(SelectedJobDescription));
         }
     }
@@ -381,6 +406,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     public string SelectedJobLastSeenLabel => SelectedJob?.LastSeenLabel ?? string.Empty;
 
     public string SelectedJobAvailabilityLabel => SelectedJob?.AvailabilityLabel ?? string.Empty;
+
+    public bool SelectedJobNeedsAvailabilityRepair => SelectedJob?.NeedsAvailabilityRepair == true;
 
     public string SelectedJobDescription => SelectedJob?.Description ?? "Choose an opportunity to view its details.";
 
@@ -453,21 +480,6 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
     }
 
-    public bool IsNewTodayFilterEnabled
-    {
-        get => _isNewTodayFilterEnabled;
-        set
-        {
-            if (_isNewTodayFilterEnabled == value)
-            {
-                return;
-            }
-
-            this.RaiseAndSetIfChanged(ref _isNewTodayFilterEnabled, value);
-            RefreshFilteredViews();
-        }
-    }
-
     public bool IsDotNetLanguageFilterEnabled
     {
         get => _isDotNetLanguageFilterEnabled;
@@ -479,6 +491,21 @@ public sealed class MainWindowViewModel : ViewModelBase
             }
 
             this.RaiseAndSetIfChanged(ref _isDotNetLanguageFilterEnabled, value);
+            RefreshFilteredViews();
+        }
+    }
+
+    public bool IsNotAvailableInLatestScanFilterEnabled
+    {
+        get => _isNotAvailableInLatestScanFilterEnabled;
+        set
+        {
+            if (_isNotAvailableInLatestScanFilterEnabled == value)
+            {
+                return;
+            }
+
+            this.RaiseAndSetIfChanged(ref _isNotAvailableInLatestScanFilterEnabled, value);
             RefreshFilteredViews();
         }
     }
@@ -658,6 +685,29 @@ public sealed class MainWindowViewModel : ViewModelBase
         var observationsBySnapshot = _repository.GetAllObservations()
             .GroupBy(observation => observation.SnapshotId, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
+        var latestSnapshot = history.OrderByDescending(snapshot => snapshot.CapturedAtUtc).FirstOrDefault();
+        _latestSnapshotJobIds = latestSnapshot is null
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            : (observationsBySnapshot.GetValueOrDefault(latestSnapshot.Id) ?? Array.Empty<JobObservation>())
+                .Select(observation => observation.JobId)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var jobIdsBySnapshot = observationsBySnapshot.ToDictionary(
+            pair => pair.Key,
+            pair => pair.Value.Select(observation => observation.JobId)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase),
+            StringComparer.OrdinalIgnoreCase);
+        _jobIdsMissingSnapshotObservations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var posting in postingsById.Values)
+        {
+            var snapshotsSinceFirstSeen = history.Where(snapshot => posting.FirstSeenUtc == default
+                || snapshot.CapturedAtUtc >= posting.FirstSeenUtc);
+            if (snapshotsSinceFirstSeen.Any(snapshot => !jobIdsBySnapshot.TryGetValue(snapshot.Id, out var jobIds)
+                || !jobIds.Contains(posting.Id)))
+            {
+                _jobIdsMissingSnapshotObservations.Add(posting.Id);
+            }
+        }
+
         _snapshotHistory = history.Select(snapshot =>
         {
             var observations = observationsBySnapshot.GetValueOrDefault(snapshot.Id) ?? Array.Empty<JobObservation>();
@@ -874,7 +924,12 @@ public sealed class MainWindowViewModel : ViewModelBase
             .ToArray();
         foreach (var posting in postings)
         {
-            Jobs.Add(new JobOpportunityViewModel(posting, SaveOpportunityStatus));
+            Jobs.Add(new JobOpportunityViewModel(
+                posting,
+                _latestSnapshotJobIds.Contains(posting.Id),
+                _jobIdsMissingSnapshotObservations.Contains(posting.Id),
+                SaveOpportunityStatus,
+                MarkAvailable));
         }
 
         RefreshLocationFilters();
@@ -918,7 +973,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         MatchesLocationFilter(posting, SelectedLocationFilter)
         && MatchesSourceFilter(posting, SelectedSourceFilter)
         && MatchesStatusFilter(posting, SelectedStatusFilter)
-        && (!IsNewTodayFilterEnabled || WasAddedToHistoryToday(posting))
+        && (!IsNotAvailableInLatestScanFilterEnabled || !_latestSnapshotJobIds.Contains(posting.Id))
         && (!IsDotNetLanguageFilterEnabled || _postingFactsById.GetValueOrDefault(posting.Id)?.IsDotNetRelevant != false);
 
     private static bool MatchesStatusFilter(JobPosting posting, LocationFilterOption? filter) =>
@@ -936,9 +991,6 @@ public sealed class MainWindowViewModel : ViewModelBase
             selectedJobId,
             StringComparison.OrdinalIgnoreCase)) ?? FilteredJobs.FirstOrDefault();
     }
-
-    private static bool WasAddedToHistoryToday(JobPosting posting) => posting.FirstSeenUtc != default
-        && posting.FirstSeenUtc.ToLocalTime().Date == DateTime.Today;
 
     private void RefreshLocationFilters()
     {
@@ -1057,6 +1109,19 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
 
         Process.Start(new ProcessStartInfo(jobUri.AbsoluteUri) { UseShellExecute = true });
+    }
+
+    private void MarkSelectedJobAvailable() => SelectedJob?.MarkAvailable();
+
+    private void MarkAvailable(string jobId)
+    {
+        var selectedSnapshotId = SelectedPoint?.Snapshot.Id;
+        _repository.MarkAvailable(jobId);
+        PopulateHistory(_repository.GetHistory(), selectedSnapshotId);
+        SelectedJob = FilteredJobs.FirstOrDefault(job => string.Equals(
+            job.Posting.Id,
+            jobId,
+            StringComparison.OrdinalIgnoreCase)) ?? FilteredJobs.FirstOrDefault();
     }
 
     private void SaveOpportunityStatus(string jobId, string status)

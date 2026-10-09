@@ -9,12 +9,21 @@ namespace JobSpy.Desktop.ViewModels;
 public sealed class JobOpportunityViewModel : ReactiveObject
 {
     private readonly Action<string, string> _saveStatus;
+    private readonly Action<string> _markAvailable;
     private string _selectedStatus;
 
-    public JobOpportunityViewModel(JobPosting posting, Action<string, string> saveStatus)
+    public JobOpportunityViewModel(
+        JobPosting posting,
+        bool isInLatestSnapshot,
+        bool needsAvailabilityRepair,
+        Action<string, string> saveStatus,
+        Action<string> markAvailable)
     {
         Posting = posting;
+        IsInLatestSnapshot = isInLatestSnapshot;
+        NeedsAvailabilityRepair = needsAvailabilityRepair;
         _saveStatus = saveStatus;
+        _markAvailable = markAvailable;
         _selectedStatus = OpportunityStatus.Normalize(posting.Status);
     }
 
@@ -38,9 +47,17 @@ public sealed class JobOpportunityViewModel : ReactiveObject
         ? "Last seen date unavailable"
         : $"Last seen {Posting.LastSeenUtc.ToLocalTime():dd MMM yyyy}";
 
-    public string AvailabilityLabel => Posting.DisappearedAtUtc.HasValue
-        ? $"Disappeared {Posting.DisappearedAtUtc.Value.ToLocalTime():dd MMM yyyy}"
-        : "Available in latest scan";
+    public string AvailabilityLabel => IsInLatestSnapshot
+        ? "Available in latest scan"
+        : Posting.DisappearedAtUtc.HasValue
+            ? $"Disappeared {Posting.DisappearedAtUtc.Value.ToLocalTime():dd MMM yyyy}"
+            : "Not found in latest scan";
+
+    public bool IsInLatestSnapshot { get; }
+
+    public bool NeedsAvailabilityRepair { get; }
+
+    public void MarkAvailable() => _markAvailable(Posting.Id);
 
     public string Description => string.IsNullOrWhiteSpace(Posting.Description)
         ? "No description was provided by the source."

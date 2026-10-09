@@ -197,6 +197,55 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
         _postings.Update(posting);
     }
 
+    public void MarkAvailable(string jobId)
+    {
+        var posting = _postings.FindById(jobId);
+        if (posting is null)
+        {
+            return;
+        }
+
+        var snapshotsToRestore = _snapshots.FindAll()
+            .Where(snapshot => posting.FirstSeenUtc == default || snapshot.CapturedAtUtc >= posting.FirstSeenUtc)
+            .OrderBy(snapshot => snapshot.CapturedAtUtc)
+            .ToArray();
+        _database.BeginTrans();
+        try
+        {
+            posting.DisappearedAtUtc = null;
+            _postings.Update(posting);
+
+            foreach (var snapshot in snapshotsToRestore)
+            {
+                if (_observations.Find(observation => observation.SnapshotId == snapshot.Id)
+                    .Any(observation => observation.JobId == jobId))
+                {
+                    continue;
+                }
+
+                var searchTerm = posting.SearchTerm ?? string.Empty;
+                _observations.Insert(new JobObservation
+                {
+                    Id = searchTerm.Length == 0
+                        ? $"{snapshot.Id}|{jobId}"
+                        : $"{snapshot.Id}|{jobId}|{searchTerm}",
+                    SnapshotId = snapshot.Id,
+                    JobId = jobId,
+                    SearchTerm = searchTerm,
+                });
+
+                UpdateSnapshotSummary(snapshot);
+            }
+
+            _database.Commit();
+        }
+        catch
+        {
+            _database.Rollback();
+            throw;
+        }
+    }
+
     public void SetRelocationRequired(string jobId, bool requiresRelocation)
     {
         var posting = _postings.FindById(jobId);
@@ -207,6 +256,37 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
 
         posting.RequiresRelocation = requiresRelocation;
         _postings.Update(posting);
+    }
+
+    private void UpdateSnapshotSummary(JobSearchSnapshot snapshot)
+    {
+        var postings = _observations.Find(observation => observation.SnapshotId == snapshot.Id)
+            .Select(observation => _postings.FindById(observation.JobId))
+            .Where(posting => posting is not null)
+            .Cast<JobPosting>()
+            .DistinctBy(posting => posting.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var annualSalaries = postings
+            .Select(posting => posting.AnnualSalaryGbp)
+            .Where(salary => salary.HasValue)
+            .Select(salary => salary!.Value)
+            .OrderBy(salary => salary)
+            .ToArray();
+        snapshot.AvailableJobCount = postings.Length;
+        snapshot.SalaryJobCount = annualSalaries.Length;
+        if (annualSalaries.Length > 0)
+        {
+            var middle = annualSalaries.Length / 2;
+            snapshot.MedianAnnualSalaryGbp = annualSalaries.Length % 2 == 0
+                ? (annualSalaries[middle - 1] + annualSalaries[middle]) / 2
+                : annualSalaries[middle];
+        }
+        else
+        {
+            snapshot.MedianAnnualSalaryGbp = null;
+        }
+
+        _snapshots.Update(snapshot);
     }
 
     private static string BuildId(JobPosting posting) => string.IsNullOrWhiteSpace(posting.JobUrl)
