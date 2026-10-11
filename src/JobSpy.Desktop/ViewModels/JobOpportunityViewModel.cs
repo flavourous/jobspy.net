@@ -67,6 +67,10 @@ public sealed class JobOpportunityViewModel : ReactiveObject
 
     public IReadOnlyList<string> AvailableStatuses => OpportunityStatus.All;
 
+    public string StatusLabel => _selectedStatus.Length == 0
+        ? string.Empty
+        : char.ToUpperInvariant(_selectedStatus[0]) + _selectedStatus[1..];
+
     public string SelectedStatus
     {
         get => _selectedStatus;
@@ -80,7 +84,23 @@ public sealed class JobOpportunityViewModel : ReactiveObject
 
             this.RaiseAndSetIfChanged(ref _selectedStatus, normalizedStatus);
             Posting.Status = normalizedStatus;
+            this.RaisePropertyChanged(nameof(StatusLabel));
             _saveStatus(Posting.Id, normalizedStatus);
         }
+    }
+
+    internal bool ApplyStatusWithoutSaving(string status)
+    {
+        var normalizedStatus = OpportunityStatus.Normalize(status);
+        if (_selectedStatus == normalizedStatus)
+        {
+            return false;
+        }
+
+        _selectedStatus = normalizedStatus;
+        Posting.Status = normalizedStatus;
+        this.RaisePropertyChanged(nameof(SelectedStatus));
+        this.RaisePropertyChanged(nameof(StatusLabel));
+        return true;
     }
 }

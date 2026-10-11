@@ -128,6 +128,18 @@
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Foreground" Value="#174B3D" />
         </Style>
+        <Style Selector="MenuItem.status-menu-item">
+            <Setter Property="Foreground" Value="#52615A" />
+            <Setter Property="Padding" Value="10,6" />
+        </Style>
+        <Style Selector="MenuItem.status-menu-item:pointerover">
+            <Setter Property="Background" Value="#EAF3EC" />
+            <Setter Property="Foreground" Value="#174B3D" />
+        </Style>
+        <Style Selector="MenuItem.status-menu-item:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#EAF3EC" />
+            <Setter Property="Foreground" Value="#174B3D" />
+        </Style>
     </Window.Styles>
 
     <Grid RowDefinitions="Auto,Auto,*">
@@ -263,10 +275,12 @@
                                 <TextBlock Grid.Column="1" Text="COMPANY" FontSize="10" FontWeight="Bold" Foreground="#718078" />
                                 <TextBlock Grid.Column="2" Text="SALARY" FontSize="10" FontWeight="Bold" Foreground="#718078" />
                                 <TextBlock Grid.Column="3" Text="STATUS" FontSize="10" FontWeight="Bold"
-                                           Foreground="#718078" HorizontalAlignment="Left" />
+                                           Foreground="#718078" HorizontalAlignment="Right" TextAlignment="Right" />
                             </Grid>
                         </Border>
-                        <ListBox Grid.Row="1" ItemsSource="{Binding FilteredJobs}" SelectedItem="{Binding SelectedJob}"
+                        <ListBox x:Name="JobsList" Grid.Row="1" ItemsSource="{Binding FilteredJobs}"
+                                 SelectedItem="{Binding SelectedJob}" SelectionMode="Multiple"
+                                 AutoScrollToSelectedItem="False"
                                  Background="Transparent" BorderThickness="0" Padding="0">
                             <ListBox.Styles>
                                 <Style Selector="ListBoxItem">
@@ -294,7 +308,26 @@
                             </ListBox.Styles>
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:JobOpportunityViewModel">
-                                    <Border BorderThickness="0,0,0,1" Padding="8,5" CornerRadius="3">
+                                    <Border BorderThickness="0,0,0,1" Padding="8,5" CornerRadius="3"
+                                            PointerPressed="OnJobRowPointerPressed">
+                                        <Border.ContextMenu>
+                                            <ContextMenu Classes="status-context-menu" Placement="Pointer">
+                                                <MenuItem Header="New" Tag="new" Classes="status-menu-item"
+                                                          Click="OnSetSelectedJobsStatus" />
+                                                <MenuItem Header="Ignored" Tag="ignored" Classes="status-menu-item"
+                                                          Click="OnSetSelectedJobsStatus" />
+                                                <MenuItem Header="Interested" Tag="interested" Classes="status-menu-item"
+                                                          Click="OnSetSelectedJobsStatus" />
+                                                <MenuItem Header="Applied" Tag="applied" Classes="status-menu-item"
+                                                          Click="OnSetSelectedJobsStatus" />
+                                                <MenuItem Header="Interview" Tag="interview" Classes="status-menu-item"
+                                                          Click="OnSetSelectedJobsStatus" />
+                                                <MenuItem Header="Offer" Tag="offer" Classes="status-menu-item"
+                                                          Click="OnSetSelectedJobsStatus" />
+                                                <MenuItem Header="Rejected" Tag="rejected" Classes="status-menu-item"
+                                                          Click="OnSetSelectedJobsStatus" />
+                                            </ContextMenu>
+                                        </Border.ContextMenu>
                                         <Grid ColumnSpacing="8" VerticalAlignment="Center">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="2*" />
@@ -308,13 +341,11 @@
                                                        TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                             <TextBlock Grid.Column="2" Text="{Binding SalaryLabel}" FontSize="10" FontWeight="SemiBold"
                                                        Foreground="#16775C" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                            <ComboBox Grid.Column="3" Width="84" HorizontalAlignment="Right"
-                                                      ItemsSource="{Binding AvailableStatuses}"
-                                                      SelectedItem="{Binding SelectedStatus}" MinHeight="0"
-                                                      Padding="0" BorderThickness="0" Background="Transparent"
-                                                      FontSize="10" Foreground="#52615A"
-                                                      HorizontalContentAlignment="Right"
-                                                      ToolTip.Tip="Set opportunity status" />
+                                            <TextBlock Grid.Column="3" Width="84" Text="{Binding StatusLabel}"
+                                                       FontSize="10" Foreground="#52615A"
+                                                       HorizontalAlignment="Right" TextAlignment="Right"
+                                                       VerticalAlignment="Center"
+                                                       ToolTip.Tip="Right-click to set opportunity status" />
                                         </Grid>
                                     </Border>
                                 </DataTemplate>

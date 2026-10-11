@@ -32,6 +32,8 @@ public sealed class LocationFilterOption
     public bool IsRemote { get; }
 }
 
+public sealed record JobStatusChangeRequest(string Status, IReadOnlyList<string> JobIds);
+
 internal sealed class BatchObservableCollection<T> : ObservableCollection<T>
 {
     public void ReplaceAll(IReadOnlyList<T> items)
@@ -262,6 +264,11 @@ public sealed class MainWindowViewModel : ViewModelBase
             return Unit.Default;
         }, this.WhenAnyValue(viewModel => viewModel.SelectedJob)
             .Select(job => job?.NeedsAvailabilityRepair == true));
+        SetSelectedJobsStatusCommand = ReactiveCommand.Create<JobStatusChangeRequest, Unit>(request =>
+        {
+            SetSelectedJobsStatus(request);
+            return Unit.Default;
+        });
 
         PopulateHistory(_repository.GetHistory(), null);
         _statusMessage = ChartPoints.Count == 0
@@ -297,6 +304,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ReactiveCommand<ReactiveUI.Primitives.RxVoid, Unit> OpenSelectedJobCommand { get; }
 
     public ReactiveCommand<ReactiveUI.Primitives.RxVoid, Unit> MarkSelectedJobAvailableCommand { get; }
+
+    public ReactiveCommand<JobStatusChangeRequest, Unit> SetSelectedJobsStatusCommand { get; }
 
     public string ScanProgressSummary => $"{_finishedSearchTasks} / {ScanProgressRows.Count} tasks finished";
 
@@ -1135,5 +1144,29 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
 
         RefreshFilteredViews();
+    }
+
+    private void SetSelectedJobsStatus(JobStatusChangeRequest request)
+    {
+        var status = OpportunityStatus.Normalize(request.Status);
+        var jobIds = request.JobIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var changed = false;
+        foreach (var job in Jobs.Where(job => jobIds.Contains(job.Posting.Id)))
+        {
+            if (!job.ApplyStatusWithoutSaving(status))
+            {
+                continue;
+            }
+
+            _repository.SetStatus(job.Posting.Id, status);
+            changed = true;
+        }
+
+        if (changed && SelectedStatusFilter is not null
+            && SelectedStatusFilter.Key.Length > 0
+            && !string.Equals(SelectedStatusFilter.Key, status, StringComparison.OrdinalIgnoreCase))
+        {
+            RefreshFilteredViews();
+        }
     }
 }
