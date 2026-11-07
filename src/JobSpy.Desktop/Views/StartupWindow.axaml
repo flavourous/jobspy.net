@@ -1,0 +1,19 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="JobSpy.Desktop.Views.StartupWindow"
+        Title="JobSpy | Starting"
+        Width="520" Height="300" MinWidth="460" MinHeight="260"
+        CanResize="False" WindowStartupLocation="CenterScreen"
+        Background="#F3F5F2">
+    <Grid RowDefinitions="Auto,*" Margin="32">
+        <StackPanel Spacing="5">
+            <TextBlock Text="JOBSPY  /  ROLE MARKET" FontSize="11" FontWeight="Bold" Foreground="#16775C" />
+            <TextBlock Text="Getting things ready" FontSize="25" FontWeight="SemiBold" Foreground="#20382E" />
+        </StackPanel>
+        <StackPanel Grid.Row="1" Spacing="14" VerticalAlignment="Center">
+            <ProgressBar IsIndeterminate="True" Height="5" />
+            <TextBlock x:Name="StatusText" Text="Starting…" FontSize="14" Foreground="#52615A"
+                       TextWrapping="Wrap" />
+        </StackPanel>
+    </Grid>
+</Window>

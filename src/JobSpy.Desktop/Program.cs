@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading.Tasks;
 using JobSpy.Desktop.Services;
@@ -20,20 +19,10 @@ sealed class Program
     [STAThread]
     public static int Main(string[] args)
     {
-        try
-        {
-            ConfigurePythonEnvironment();
-        }
-        catch (Exception exception)
-        {
-            Console.Error.WriteLine($"Unable to prepare JobSpy's Python environment: {exception.Message}");
-            return 1;
-        }
-
         return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
 
-    private static void ConfigurePythonEnvironment()
+    internal static void ConfigurePythonEnvironment(Action<string>? reportStatus = null)
     {
         var jobSpyRoot = FindJobSpyRoot();
         var dataRoot = JobSpyDataDirectory.GetPath();
@@ -43,26 +32,18 @@ sealed class Program
         var venvPython = Path.Combine(virtualEnvironment, OperatingSystem.IsWindows()
             ? Path.Combine("Scripts", "python.exe")
             : Path.Combine("bin", "python"));
-        var projectMetadata = Path.Combine(jobSpyRoot, "pyproject.toml");
-        var fingerprintPath = Path.Combine(dataRoot, "jobspy-dependencies.sha256");
-        var fingerprint = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(projectMetadata)));
-        var dependenciesNeedInstall = !File.Exists(venvPython)
-            || !File.Exists(fingerprintPath)
-            || File.ReadAllText(fingerprintPath) != fingerprint;
-
         if (!File.Exists(venvPython))
         {
+            reportStatus?.Invoke("Creating the Python environment…");
             Console.WriteLine("Creating the JobSpy Python virtual environment...");
             RunProcess(sourcePython, new[] { "-m", "venv", virtualEnvironment }, jobSpyRoot);
         }
 
-        if (dependenciesNeedInstall)
-        {
-            Console.WriteLine("Installing the local JobSpy checkout and its dependencies...");
-            RunProcess(venvPython, new[] { "-m", "pip", "install", "--disable-pip-version-check", "-e", jobSpyRoot }, jobSpyRoot);
-            File.WriteAllText(fingerprintPath, fingerprint);
-        }
+        reportStatus?.Invoke("Installing JobSpy and its Python dependencies… This can take a few minutes.");
+        Console.WriteLine("Ensuring the local JobSpy checkout and its dependencies are installed...");
+        RunProcess(venvPython, new[] { "-m", "pip", "install", "--disable-pip-version-check", "-e", jobSpyRoot }, jobSpyRoot);
 
+        reportStatus?.Invoke("Preparing the embedded Python runtime…");
         var pythonInfoJson = RunProcess(venvPython, new[]
         {
             "-c",
