@@ -48,7 +48,19 @@ public sealed class JobOpportunityViewModel : ReactiveObject
 
     public string WorkPatternLabel => Posting.WorkPatternLabel;
 
+    public IBrush WorkPatternForeground => Posting.AiWorkPattern ? AiCorrectedTypeBrush : InferredTypeBrush;
+
     public IBrush EmploymentTypeForeground => Posting.AiCorrected ? AiCorrectedTypeBrush : InferredTypeBrush;
+
+    public void RefreshEnrichment()
+    {
+        this.RaisePropertyChanged(nameof(Location));
+        this.RaisePropertyChanged(nameof(SalaryLabel));
+        this.RaisePropertyChanged(nameof(EmploymentTypeLabel));
+        this.RaisePropertyChanged(nameof(EmploymentTypeForeground));
+        this.RaisePropertyChanged(nameof(WorkPatternLabel));
+        this.RaisePropertyChanged(nameof(WorkPatternForeground));
+    }
 
     public string DatePostedLabel => Posting.DatePostedLabel;
 

@@ -6,6 +6,9 @@ namespace JobSpy.Desktop.Repositories;
 
 public interface IJobRepository
 {
+    event System.Action<StoredJobEnrichmentProgress>? StoredJobEnrichmentProgressChanged;
+    bool HasPendingStoredEnrichment { get; }
+    void EnrichStoredPostings();
     IReadOnlyList<JobPosting> GetAll();
     IReadOnlyList<JobSearchSnapshot> GetHistory();
     IReadOnlyList<JobPosting> GetJobsForSnapshot(string snapshotId);

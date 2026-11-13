@@ -9,6 +9,7 @@ using System.Reactive;
 using System.Reactive.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Threading;
 using JobSpy.Desktop.Models;
 using JobSpy.Desktop.Repositories;
 using JobSpy.Desktop.Services;
@@ -171,6 +172,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     private readonly IJobSearchService _searchService;
     private readonly BatchObservableCollection<JobOpportunityViewModel> _filteredJobs;
     private SnapshotHistoryData[] _snapshotHistory = Array.Empty<SnapshotHistoryData>();
+    private Dictionary<string, JobPosting> _postingsById = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, PostingFacts> _postingFactsById = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _latestSnapshotJobIds = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _jobIdsMissingSnapshotObservations = new(StringComparer.OrdinalIgnoreCase);
@@ -198,11 +200,16 @@ public sealed class MainWindowViewModel : ViewModelBase
     private string _capturedAtLabel = "No scan selected";
     private string _snapshotKindLabel = string.Empty;
     private string _scanElapsedLabel = "Elapsed 00:00:00";
+    private bool _isStoredEnrichmentProgressVisible;
+    private bool _isStoredEnrichmentRunning;
+    private double _storedEnrichmentProgressPercent;
+    private string _storedEnrichmentProgressLabel = string.Empty;
 
     public MainWindowViewModel(IJobRepository repository, IJobSearchService searchService)
     {
         _repository = repository;
         _searchService = searchService;
+        _repository.StoredJobEnrichmentProgressChanged += OnStoredJobEnrichmentProgressChanged;
         ChartPoints = new ObservableCollection<SnapshotChartPoint>();
         Jobs = new ObservableCollection<JobOpportunityViewModel>();
         _filteredJobs = new BatchObservableCollection<JobOpportunityViewModel>();
@@ -217,7 +224,8 @@ public sealed class MainWindowViewModel : ViewModelBase
         }.Concat(OpportunityStatus.All.Select(status => new LocationFilterOption(
             status,
             char.ToUpperInvariant(status[0]) + status[1..]))));
-        _selectedStatusFilter = StatusFilters[0];
+        _selectedStatusFilter = StatusFilters.First(filter =>
+            string.Equals(filter.Key, OpportunityStatus.Interested, StringComparison.OrdinalIgnoreCase));
 
         SearchCommand = ReactiveCommand.CreateFromTask(
             async () =>
@@ -225,7 +233,10 @@ public sealed class MainWindowViewModel : ViewModelBase
                 await SearchAsync();
                 return Unit.Default;
             },
-            this.WhenAnyValue(viewModel => viewModel.IsSearching).Select(isSearching => !isSearching));
+            this.WhenAnyValue(
+                viewModel => viewModel.IsSearching,
+                viewModel => viewModel.IsStoredEnrichmentRunning,
+                (isSearching, isEnriching) => !isSearching && !isEnriching));
         CloseScanProgressCommand = ReactiveCommand.Create(
             () =>
             {
@@ -325,6 +336,30 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         get => _isSearching;
         private set => this.RaiseAndSetIfChanged(ref _isSearching, value);
+    }
+
+    public bool IsStoredEnrichmentProgressVisible
+    {
+        get => _isStoredEnrichmentProgressVisible;
+        private set => this.RaiseAndSetIfChanged(ref _isStoredEnrichmentProgressVisible, value);
+    }
+
+    public bool IsStoredEnrichmentRunning
+    {
+        get => _isStoredEnrichmentRunning;
+        private set => this.RaiseAndSetIfChanged(ref _isStoredEnrichmentRunning, value);
+    }
+
+    public double StoredEnrichmentProgressPercent
+    {
+        get => _storedEnrichmentProgressPercent;
+        private set => this.RaiseAndSetIfChanged(ref _storedEnrichmentProgressPercent, value);
+    }
+
+    public string StoredEnrichmentProgressLabel
+    {
+        get => _storedEnrichmentProgressLabel;
+        private set => this.RaiseAndSetIfChanged(ref _storedEnrichmentProgressLabel, value);
     }
 
     public bool IsScanProgressOpen
@@ -686,6 +721,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         var postingsById = _repository.GetAll()
             .ToDictionary(posting => posting.Id, StringComparer.OrdinalIgnoreCase);
+        _postingsById = postingsById;
         _postingFactsById = postingsById.ToDictionary(
             pair => pair.Key,
             pair => new PostingFacts(
@@ -744,6 +780,92 @@ public sealed class MainWindowViewModel : ViewModelBase
         ChartPoints.Clear();
         _chartPointsBySnapshotId.Clear();
         RebuildHistory(selectedSnapshotId);
+    }
+
+    private void OnStoredJobEnrichmentProgressChanged(StoredJobEnrichmentProgress progress) =>
+        Dispatcher.UIThread.Post(() => ApplyStoredJobEnrichmentProgress(progress));
+
+    private void ApplyStoredJobEnrichmentProgress(StoredJobEnrichmentProgress progress)
+    {
+        IsStoredEnrichmentProgressVisible = true;
+        IsStoredEnrichmentRunning = !progress.IsComplete && progress.ErrorMessage is null;
+        StoredEnrichmentProgressPercent = progress.Percent;
+
+        if (progress.ErrorMessage is not null)
+        {
+            StoredEnrichmentProgressLabel = $"AI enrichment stopped at {progress.Completed:N0}/{progress.Total:N0}: {progress.ErrorMessage}";
+        }
+        else if (progress.IsComplete)
+        {
+            StoredEnrichmentProgressLabel = progress.Failed == 0
+                ? $"AI enrichment complete: {progress.Completed:N0} postings reviewed."
+                : $"AI enrichment complete: {progress.Completed:N0} reviewed · {progress.Failed:N0} pending retry.";
+        }
+        else
+        {
+            StoredEnrichmentProgressLabel = progress.Failed == 0
+                ? $"AI enrichment: {progress.Completed:N0} of {progress.Total:N0} postings saved."
+                : $"AI enrichment: {progress.Completed:N0} of {progress.Total:N0} saved · {progress.Failed:N0} pending retry.";
+        }
+
+        foreach (var updated in progress.UpdatedPostings)
+        {
+            if (!_postingsById.TryGetValue(updated.Id, out var existing))
+            {
+                continue;
+            }
+
+            existing.EnrichedType = updated.EnrichedType;
+            existing.EnrichedLocation = updated.EnrichedLocation;
+            existing.EnrichedWorkPattern = updated.EnrichedWorkPattern;
+            existing.AiWorkPattern = updated.AiWorkPattern;
+            existing.EnrichedSalary = updated.EnrichedSalary;
+            existing.EnrichedSalaryMinAmount = updated.EnrichedSalaryMinAmount;
+            existing.EnrichedSalaryAmount = updated.EnrichedSalaryAmount;
+            existing.EnrichedSalaryCurrency = updated.EnrichedSalaryCurrency;
+            existing.EnrichedSalaryInterval = updated.EnrichedSalaryInterval;
+            existing.EnrichmentVersion = updated.EnrichmentVersion;
+            existing.AiCorrected = updated.AiCorrected;
+            _postingFactsById[updated.Id] = new PostingFacts(
+                JobLanguageFilter.IsRelevant(existing.Description),
+                existing.AnnualSalaryGbp,
+                IsManagementRole(existing.Title),
+                JobLocationClassifier.NeedsRelocation(existing));
+
+            foreach (var job in Jobs.Where(job => string.Equals(
+                job.Posting.Id,
+                updated.Id,
+                StringComparison.OrdinalIgnoreCase)))
+            {
+                job.RefreshEnrichment();
+            }
+
+            if (string.Equals(SelectedJob?.Posting.Id, updated.Id, StringComparison.OrdinalIgnoreCase))
+            {
+                this.RaisePropertyChanged(nameof(SelectedJobTitle));
+                this.RaisePropertyChanged(nameof(SelectedJobSalaryLabel));
+                this.RaisePropertyChanged(nameof(SelectedJobLocation));
+                this.RaisePropertyChanged(nameof(SelectedJobWorkPatternLabel));
+            }
+        }
+
+        if (progress.UpdatedPostings.Any(posting => Jobs.Any(job =>
+            string.Equals(job.Posting.Id, posting.Id, StringComparison.OrdinalIgnoreCase))))
+        {
+            RefreshLocationFilters();
+            RefreshFilteredJobs();
+        }
+
+        if (progress.IsComplete)
+        {
+            var selectedSnapshotId = SelectedPoint?.Snapshot.Id;
+            var selectedJobId = SelectedJob?.Posting.Id;
+            PopulateHistory(_repository.GetHistory(), selectedSnapshotId);
+            SelectedJob = FilteredJobs.FirstOrDefault(job => string.Equals(
+                job.Posting.Id,
+                selectedJobId,
+                StringComparison.OrdinalIgnoreCase)) ?? FilteredJobs.FirstOrDefault();
+        }
     }
 
     private void RebuildHistory(string? selectedSnapshotId)

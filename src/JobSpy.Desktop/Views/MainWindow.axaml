@@ -161,6 +161,18 @@
                 <TextBlock Text="{Binding SearchTermsLabel}" FontSize="13" FontWeight="SemiBold"
                            Foreground="#263B31" TextWrapping="Wrap" />
                 <TextBlock Text="{Binding SearchLocationLabel}" FontSize="11" Foreground="#68786F" />
+                <Border IsVisible="{Binding IsStoredEnrichmentProgressVisible}"
+                        Background="#F3F7F3" BorderBrush="#D9E5DA" BorderThickness="1"
+                        CornerRadius="5" Padding="10,6" Margin="0,5,0,0">
+                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="12" RowSpacing="4">
+                        <TextBlock Text="{Binding StoredEnrichmentProgressLabel}" FontSize="11"
+                                   Foreground="#385247" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="1" Text="{Binding StoredEnrichmentProgressPercent, StringFormat='{}{0:0}%'}"
+                                   FontSize="11" FontWeight="SemiBold" Foreground="#385247" />
+                        <ProgressBar Grid.Row="1" Grid.ColumnSpan="2"
+                                     Value="{Binding StoredEnrichmentProgressPercent}" Maximum="100" Height="5" />
+                    </Grid>
+                </Border>
             </StackPanel>
         </Border>
 
@@ -354,7 +366,8 @@
                                                        Foreground="{Binding EmploymentTypeForeground}"
                                                        TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                             <TextBlock Grid.Column="3" Text="{Binding WorkPatternLabel}" FontSize="10"
-                                                       Foreground="#52615A" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                                       Foreground="{Binding WorkPatternForeground}"
+                                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                             <TextBlock Grid.Column="4" Text="{Binding SalaryLabel}" FontSize="10" FontWeight="SemiBold"
                                                        Foreground="#16775C" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                             <TextBlock Grid.Column="5" Width="84" Text="{Binding StatusLabel}"

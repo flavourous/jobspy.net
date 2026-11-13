@@ -14,7 +14,7 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
     private readonly ILiteCollection<JobSearchSnapshot> _snapshots;
     private readonly ILiteCollection<JobObservation> _observations;
 
-    public LiteDbJobRepository(string databasePath)
+    public LiteDbJobRepository(string databasePath, bool deferStoredEnrichment = false)
     {
         _database = new LiteDatabase(databasePath);
         _postings = _database.GetCollection<JobPosting>("job_postings");
@@ -24,8 +24,17 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
         _snapshots.EnsureIndex(snapshot => snapshot.CapturedAtUtc);
         _observations.EnsureIndex(observation => observation.SnapshotId);
         MigrateLegacyStatuses();
-        EnrichStoredPostings();
+        if (!deferStoredEnrichment)
+        {
+            EnrichStoredPostings();
+        }
     }
+
+    public event Action<StoredJobEnrichmentProgress>? StoredJobEnrichmentProgressChanged;
+
+    public bool HasPendingStoredEnrichment => _postings
+        .Find(posting => posting.EnrichmentVersion < JobPostingEnricher.CurrentVersion)
+        .Any();
 
     public IReadOnlyList<JobPosting> GetAll() => _postings.FindAll()
         .OrderByDescending(posting => posting.LastSeenUtc)
@@ -107,16 +116,17 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
                 && existing?.EnrichmentVersion == JobPostingEnricher.CurrentVersion)
             {
                 incoming.EnrichedWorkPattern = existing.EnrichedWorkPattern;
+                incoming.AiWorkPattern = existing.AiWorkPattern;
             }
         }
 
-        if (!CodexJobPostingReview.Review(incomingById.Values.ToArray()))
+        CodexJobPostingReview.Review(incomingById.Values, (posting, reviewSucceeded) =>
         {
-            foreach (var posting in incomingById.Values)
+            if (!reviewSucceeded)
             {
                 posting.EnrichmentVersion = JobPostingEnricher.CurrentVersion - 1;
             }
-        }
+        });
 
         var snapshot = new JobSearchSnapshot
         {
@@ -317,6 +327,19 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
 
     private static void PreserveAiCorrections(JobPosting incoming, JobPosting? existing)
     {
+        if (existing is null)
+        {
+            return;
+        }
+
+        if (!incoming.IsRemote
+            && existing.AiWorkPattern
+            && !string.IsNullOrWhiteSpace(existing.EnrichedWorkPattern))
+        {
+            incoming.EnrichedWorkPattern = existing.EnrichedWorkPattern;
+            incoming.AiWorkPattern = true;
+        }
+
         if (existing?.AiCorrected != true)
         {
             return;
@@ -333,11 +356,6 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
             incoming.EnrichedLocation = existing.EnrichedLocation;
         }
 
-        if (!incoming.IsRemote)
-        {
-            incoming.EnrichedWorkPattern = existing.EnrichedWorkPattern;
-        }
-
         if (!incoming.MinAmount.HasValue && !incoming.MaxAmount.HasValue)
         {
             incoming.EnrichedSalary = existing.EnrichedSalary;
@@ -348,50 +366,108 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
         }
     }
 
-    private void EnrichStoredPostings()
+    public void EnrichStoredPostings()
     {
         var outdatedPostings = _postings.Find(posting => posting.EnrichmentVersion < JobPostingEnricher.CurrentVersion)
             .ToArray();
-        if (outdatedPostings.Length == 0)
+        var total = outdatedPostings.Length;
+        if (total == 0)
         {
+            StoredJobEnrichmentProgressChanged?.Invoke(
+                new StoredJobEnrichmentProgress(0, 0, 0, true, Array.Empty<JobPosting>()));
             return;
         }
 
-        foreach (var posting in outdatedPostings)
-        {
-            var previousCorrection = posting.AiCorrected
-                ? new JobPosting
-                {
-                    JobType = posting.JobType,
-                    MinAmount = posting.MinAmount,
-                    MaxAmount = posting.MaxAmount,
-                    EnrichedType = posting.EnrichedType,
-                    EnrichedLocation = posting.EnrichedLocation,
-                    EnrichedWorkPattern = posting.EnrichedWorkPattern,
-                    EnrichedSalary = posting.EnrichedSalary,
-                    EnrichedSalaryMinAmount = posting.EnrichedSalaryMinAmount,
-                    EnrichedSalaryAmount = posting.EnrichedSalaryAmount,
-                    EnrichedSalaryCurrency = posting.EnrichedSalaryCurrency,
-                    EnrichedSalaryInterval = posting.EnrichedSalaryInterval,
-                    AiCorrected = true,
-                }
-                : null;
-            JobPostingEnricher.Enrich(posting);
-            PreserveAiCorrections(posting, previousCorrection);
-        }
+        var completed = 0;
+        var failed = 0;
+        StoredJobEnrichmentProgressChanged?.Invoke(
+            new StoredJobEnrichmentProgress(0, total, 0, false, Array.Empty<JobPosting>()));
 
-        if (!CodexJobPostingReview.Review(outdatedPostings))
-        {
-            foreach (var posting in outdatedPostings)
-            {
-                posting.EnrichmentVersion = JobPostingEnricher.CurrentVersion - 1;
-            }
-        }
-
-        _database.BeginTrans();
         try
         {
             foreach (var posting in outdatedPostings)
+            {
+                var previousCorrection = posting.AiCorrected || posting.AiWorkPattern
+                    ? new JobPosting
+                    {
+                        JobType = posting.JobType,
+                        MinAmount = posting.MinAmount,
+                        MaxAmount = posting.MaxAmount,
+                        IsRemote = posting.IsRemote,
+                        EnrichmentVersion = posting.EnrichmentVersion,
+                        EnrichedType = posting.EnrichedType,
+                        EnrichedLocation = posting.EnrichedLocation,
+                        EnrichedWorkPattern = posting.EnrichedWorkPattern,
+                        AiWorkPattern = posting.AiWorkPattern
+                            || posting.EnrichmentVersion >= 7 && !posting.IsRemote,
+                        EnrichedSalary = posting.EnrichedSalary,
+                        EnrichedSalaryMinAmount = posting.EnrichedSalaryMinAmount,
+                        EnrichedSalaryAmount = posting.EnrichedSalaryAmount,
+                        EnrichedSalaryCurrency = posting.EnrichedSalaryCurrency,
+                        EnrichedSalaryInterval = posting.EnrichedSalaryInterval,
+                        AiCorrected = posting.AiCorrected,
+                    }
+                    : null;
+                JobPostingEnricher.Enrich(posting);
+                PreserveAiCorrections(posting, previousCorrection);
+            }
+
+            var pendingReviews = new List<(JobPosting Posting, bool Succeeded)>(40);
+            void SaveReviewedBatch()
+            {
+                if (pendingReviews.Count == 0)
+                {
+                    return;
+                }
+
+                foreach (var (posting, succeeded) in pendingReviews)
+                {
+                    if (!succeeded)
+                    {
+                        posting.EnrichmentVersion = JobPostingEnricher.CurrentVersion - 1;
+                    }
+                }
+
+                SavePostings(pendingReviews.Select(item => item.Posting));
+                failed += pendingReviews.Count(item => !item.Succeeded);
+                completed += pendingReviews.Count;
+                StoredJobEnrichmentProgressChanged?.Invoke(new StoredJobEnrichmentProgress(
+                    completed,
+                    total,
+                    failed,
+                    completed == total,
+                    pendingReviews.Select(item => item.Posting).ToArray()));
+                pendingReviews.Clear();
+            }
+
+            CodexJobPostingReview.Review(outdatedPostings, (posting, reviewSucceeded) =>
+            {
+                pendingReviews.Add((posting, reviewSucceeded));
+                if (pendingReviews.Count == 40 || completed + pendingReviews.Count == total)
+                {
+                    SaveReviewedBatch();
+                }
+            });
+        }
+        catch (Exception exception)
+        {
+            StoredJobEnrichmentProgressChanged?.Invoke(new StoredJobEnrichmentProgress(
+                completed,
+                total,
+                failed,
+                false,
+                Array.Empty<JobPosting>(),
+                exception.GetBaseException().Message));
+            throw;
+        }
+    }
+
+    private void SavePostings(IEnumerable<JobPosting> postings)
+    {
+        _database.BeginTrans();
+        try
+        {
+            foreach (var posting in postings)
             {
                 _postings.Update(posting);
             }

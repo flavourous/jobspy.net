@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
+using System.Diagnostics;
 using JobSpy.Desktop.Repositories;
 using JobSpy.Desktop.Services;
 using JobSpy.Desktop.ViewModels;
@@ -40,7 +41,9 @@ public partial class App : Application
             await Task.Run(() => Program.ConfigurePythonEnvironment(
                 message => Dispatcher.UIThread.Post(() => startupWindow.SetStatus(message))));
             var dataDirectory = JobSpyDataDirectory.GetPath();
-            var repository = new LiteDbJobRepository(Path.Combine(dataDirectory, "jobs.db"));
+            var repository = new LiteDbJobRepository(
+                Path.Combine(dataDirectory, "jobs.db"),
+                deferStoredEnrichment: true);
             DemoHistorySeeder.SeedIfRequested(repository);
             var searchService = new PythonJobSpyService();
             var mainWindow = new MainWindow
@@ -51,6 +54,21 @@ public partial class App : Application
             desktop.MainWindow = mainWindow;
             mainWindow.Show();
             startupWindow.Close();
+
+            if (repository.HasPendingStoredEnrichment)
+            {
+                _ = Task.Run(() =>
+                {
+                    try
+                    {
+                        repository.EnrichStoredPostings();
+                    }
+                    catch (Exception enrichmentException)
+                    {
+                        Debug.WriteLine($"Stored job enrichment stopped: {enrichmentException.GetBaseException().Message}");
+                    }
+                });
+            }
         }
         catch (Exception exception)
         {

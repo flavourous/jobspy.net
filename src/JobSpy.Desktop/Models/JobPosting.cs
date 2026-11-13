@@ -73,6 +73,9 @@ public sealed class JobPosting
     [BsonField("enrichedWorkPattern")]
     public string? EnrichedWorkPattern { get; set; }
 
+    [BsonField("aiWorkPattern")]
+    public bool AiWorkPattern { get; set; }
+
     [BsonField("enrichmentVersion")]
     public int EnrichmentVersion { get; set; }
 
