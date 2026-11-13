@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Avalonia.Media;
 using JobSpy.Desktop.Models;
 using ReactiveUI;
 using System.Reactive;
@@ -8,6 +9,8 @@ namespace JobSpy.Desktop.ViewModels;
 
 public sealed class JobOpportunityViewModel : ReactiveObject
 {
+    private static readonly IBrush InferredTypeBrush = new SolidColorBrush(Color.Parse("#52615A"));
+    private static readonly IBrush AiCorrectedTypeBrush = new SolidColorBrush(Color.Parse("#D97706"));
     private readonly Action<string, string> _saveStatus;
     private readonly Action<string> _markAvailable;
     private string _selectedStatus;
@@ -36,6 +39,12 @@ public sealed class JobOpportunityViewModel : ReactiveObject
     public string Location => Posting.Location ?? "Location not listed";
 
     public string SalaryLabel => Posting.SalaryLabel;
+
+    public string EmploymentTypeLabel => string.IsNullOrWhiteSpace(Posting.EffectiveJobType)
+        ? "Type not listed"
+        : Posting.EffectiveJobType;
+
+    public IBrush EmploymentTypeForeground => Posting.AiCorrected ? AiCorrectedTypeBrush : InferredTypeBrush;
 
     public string DatePostedLabel => Posting.DatePostedLabel;
 

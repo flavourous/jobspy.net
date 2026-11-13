@@ -79,6 +79,8 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
         {
             existingById.TryGetValue(id, out var existing);
             JobPostingEnricher.Enrich(incoming);
+            PreserveAiCorrections(incoming, existing);
+
             if (string.IsNullOrWhiteSpace(incoming.EnrichedSalary)
                 && existing?.EnrichmentVersion == JobPostingEnricher.CurrentVersion)
             {
@@ -93,6 +95,14 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
                 && existing?.EnrichmentVersion == JobPostingEnricher.CurrentVersion)
             {
                 incoming.EnrichedType = existing.EnrichedType;
+            }
+        }
+
+        if (!CodexJobPostingReview.Review(incomingById.Values.ToArray()))
+        {
+            foreach (var posting in incomingById.Values)
+            {
+                posting.EnrichmentVersion = JobPostingEnricher.CurrentVersion - 1;
             }
         }
 
@@ -293,6 +303,29 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
         ? $"{posting.Site}|{posting.Company}|{posting.Title}|{posting.DatePosted}"
         : posting.JobUrl;
 
+    private static void PreserveAiCorrections(JobPosting incoming, JobPosting? existing)
+    {
+        if (existing?.AiCorrected != true)
+        {
+            return;
+        }
+
+        incoming.AiCorrected = true;
+        if (string.IsNullOrWhiteSpace(incoming.JobType))
+        {
+            incoming.EnrichedType = existing.EnrichedType;
+        }
+
+        if (!incoming.MinAmount.HasValue && !incoming.MaxAmount.HasValue)
+        {
+            incoming.EnrichedSalary = existing.EnrichedSalary;
+            incoming.EnrichedSalaryMinAmount = existing.EnrichedSalaryMinAmount;
+            incoming.EnrichedSalaryAmount = existing.EnrichedSalaryAmount;
+            incoming.EnrichedSalaryCurrency = existing.EnrichedSalaryCurrency;
+            incoming.EnrichedSalaryInterval = existing.EnrichedSalaryInterval;
+        }
+    }
+
     private void EnrichStoredPostings()
     {
         var outdatedPostings = _postings.Find(posting => posting.EnrichmentVersion < JobPostingEnricher.CurrentVersion)
@@ -302,12 +335,40 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
             return;
         }
 
+        foreach (var posting in outdatedPostings)
+        {
+            var previousCorrection = posting.AiCorrected
+                ? new JobPosting
+                {
+                    JobType = posting.JobType,
+                    MinAmount = posting.MinAmount,
+                    MaxAmount = posting.MaxAmount,
+                    EnrichedType = posting.EnrichedType,
+                    EnrichedSalary = posting.EnrichedSalary,
+                    EnrichedSalaryMinAmount = posting.EnrichedSalaryMinAmount,
+                    EnrichedSalaryAmount = posting.EnrichedSalaryAmount,
+                    EnrichedSalaryCurrency = posting.EnrichedSalaryCurrency,
+                    EnrichedSalaryInterval = posting.EnrichedSalaryInterval,
+                    AiCorrected = true,
+                }
+                : null;
+            JobPostingEnricher.Enrich(posting);
+            PreserveAiCorrections(posting, previousCorrection);
+        }
+
+        if (!CodexJobPostingReview.Review(outdatedPostings))
+        {
+            foreach (var posting in outdatedPostings)
+            {
+                posting.EnrichmentVersion = JobPostingEnricher.CurrentVersion - 1;
+            }
+        }
+
         _database.BeginTrans();
         try
         {
             foreach (var posting in outdatedPostings)
             {
-                JobPostingEnricher.Enrich(posting);
                 _postings.Update(posting);
             }
 

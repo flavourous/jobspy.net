@@ -70,6 +70,10 @@ public sealed class JobPosting
     [BsonField("enrichmentVersion")]
     public int EnrichmentVersion { get; set; }
 
+    [BsonField("aicorrected")]
+    [JsonIgnore]
+    public bool AiCorrected { get; set; }
+
     [JsonPropertyName("is_remote")]
     public bool IsRemote { get; set; }
 

@@ -269,12 +269,14 @@
                                     <ColumnDefinition Width="2*" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="84" />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="ROLE" FontSize="10" FontWeight="Bold" Foreground="#718078" />
                                 <TextBlock Grid.Column="1" Text="COMPANY" FontSize="10" FontWeight="Bold" Foreground="#718078" />
-                                <TextBlock Grid.Column="2" Text="SALARY" FontSize="10" FontWeight="Bold" Foreground="#718078" />
-                                <TextBlock Grid.Column="3" Text="STATUS" FontSize="10" FontWeight="Bold"
+                                <TextBlock Grid.Column="2" Text="TYPE" FontSize="10" FontWeight="Bold" Foreground="#718078" />
+                                <TextBlock Grid.Column="3" Text="SALARY" FontSize="10" FontWeight="Bold" Foreground="#718078" />
+                                <TextBlock Grid.Column="4" Text="STATUS" FontSize="10" FontWeight="Bold"
                                            Foreground="#718078" HorizontalAlignment="Right" TextAlignment="Right" />
                             </Grid>
                         </Border>
@@ -339,9 +341,12 @@
                                                        Foreground="#20382E" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                             <TextBlock Grid.Column="1" Text="{Binding Company}" FontSize="11" Foreground="#52615A"
                                                        TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                            <TextBlock Grid.Column="2" Text="{Binding SalaryLabel}" FontSize="10" FontWeight="SemiBold"
+                                            <TextBlock Grid.Column="2" Text="{Binding EmploymentTypeLabel}" FontSize="10"
+                                                       Foreground="{Binding EmploymentTypeForeground}"
+                                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="3" Text="{Binding SalaryLabel}" FontSize="10" FontWeight="SemiBold"
                                                        Foreground="#16775C" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                            <TextBlock Grid.Column="3" Width="84" Text="{Binding StatusLabel}"
+                                            <TextBlock Grid.Column="4" Width="84" Text="{Binding StatusLabel}"
                                                        FontSize="10" Foreground="#52615A"
                                                        HorizontalAlignment="Right" TextAlignment="Right"
                                                        VerticalAlignment="Center"

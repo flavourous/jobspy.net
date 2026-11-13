@@ -8,7 +8,7 @@ namespace JobSpy.Desktop.Services;
 
 public static class JobPostingEnricher
 {
-    public const int CurrentVersion = 5;
+    public const int CurrentVersion = 6;
 
     private const string CurrencyPattern = @"£|€|\$|GBP\b|USD\b|EUR\b";
     private const string AmountPattern = @"(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{4,6}(?:\.\d+)?|\d{2,3}(?:\.\d+)?)";
@@ -49,6 +49,43 @@ public static class JobPostingEnricher
         posting.EnrichedSalaryCurrency = salaryDetails?.Currency ?? posting.Currency ?? "GBP";
         posting.EnrichedSalaryInterval = salaryDetails?.Interval;
         posting.EnrichmentVersion = CurrentVersion;
+    }
+
+    public static bool ApplyAiCorrection(JobPosting posting, string? employmentType, string? salary)
+    {
+        var changed = false;
+        if (string.IsNullOrWhiteSpace(posting.JobType))
+        {
+            var normalizedType = ParseType(employmentType);
+            if (normalizedType != posting.EnrichedType)
+            {
+                posting.EnrichedType = normalizedType;
+                changed = true;
+            }
+        }
+
+        if (!posting.MinAmount.HasValue && !posting.MaxAmount.HasValue)
+        {
+            var normalizedSalary = string.IsNullOrWhiteSpace(salary) ? null : Normalize(salary);
+            var salaryDetails = ParseSalary(normalizedSalary, posting.EffectiveJobType);
+            if ((normalizedSalary is null || salaryDetails is not null)
+                && normalizedSalary != posting.EnrichedSalary)
+            {
+                posting.EnrichedSalary = normalizedSalary;
+                posting.EnrichedSalaryMinAmount = salaryDetails?.MinAmount;
+                posting.EnrichedSalaryAmount = salaryDetails?.MaxAmount;
+                posting.EnrichedSalaryCurrency = salaryDetails?.Currency ?? posting.Currency ?? "GBP";
+                posting.EnrichedSalaryInterval = salaryDetails?.Interval;
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            posting.AiCorrected = true;
+        }
+
+        return changed;
     }
 
     private static SalaryDetails? ParseSalary(string? salary, string? jobType)
