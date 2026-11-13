@@ -335,6 +335,7 @@
                                                 <ColumnDefinition Width="2*" />
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="84" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold"
