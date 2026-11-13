@@ -96,6 +96,18 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
             {
                 incoming.EnrichedType = existing.EnrichedType;
             }
+
+            if (string.IsNullOrWhiteSpace(incoming.EnrichedLocation)
+                && existing?.EnrichmentVersion == JobPostingEnricher.CurrentVersion)
+            {
+                incoming.EnrichedLocation = existing.EnrichedLocation;
+            }
+
+            if (string.IsNullOrWhiteSpace(incoming.EnrichedWorkPattern)
+                && existing?.EnrichmentVersion == JobPostingEnricher.CurrentVersion)
+            {
+                incoming.EnrichedWorkPattern = existing.EnrichedWorkPattern;
+            }
         }
 
         if (!CodexJobPostingReview.Review(incomingById.Values.ToArray()))
@@ -316,6 +328,16 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
             incoming.EnrichedType = existing.EnrichedType;
         }
 
+        if (string.IsNullOrWhiteSpace(incoming.Location))
+        {
+            incoming.EnrichedLocation = existing.EnrichedLocation;
+        }
+
+        if (!incoming.IsRemote)
+        {
+            incoming.EnrichedWorkPattern = existing.EnrichedWorkPattern;
+        }
+
         if (!incoming.MinAmount.HasValue && !incoming.MaxAmount.HasValue)
         {
             incoming.EnrichedSalary = existing.EnrichedSalary;
@@ -344,6 +366,8 @@ public sealed class LiteDbJobRepository : IJobRepository, System.IDisposable
                     MinAmount = posting.MinAmount,
                     MaxAmount = posting.MaxAmount,
                     EnrichedType = posting.EnrichedType,
+                    EnrichedLocation = posting.EnrichedLocation,
+                    EnrichedWorkPattern = posting.EnrichedWorkPattern,
                     EnrichedSalary = posting.EnrichedSalary,
                     EnrichedSalaryMinAmount = posting.EnrichedSalaryMinAmount,
                     EnrichedSalaryAmount = posting.EnrichedSalaryAmount,

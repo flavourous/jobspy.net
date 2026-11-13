@@ -36,13 +36,17 @@ public sealed class JobOpportunityViewModel : ReactiveObject
 
     public string Company => Posting.Company ?? "Company not listed";
 
-    public string Location => Posting.Location ?? "Location not listed";
+    public string Location => string.IsNullOrWhiteSpace(Posting.EffectiveLocation)
+        ? "Location not listed"
+        : Posting.EffectiveLocation;
 
     public string SalaryLabel => Posting.SalaryLabel;
 
     public string EmploymentTypeLabel => string.IsNullOrWhiteSpace(Posting.EffectiveJobType)
         ? "Type not listed"
         : Posting.EffectiveJobType;
+
+    public string WorkPatternLabel => Posting.WorkPatternLabel;
 
     public IBrush EmploymentTypeForeground => Posting.AiCorrected ? AiCorrectedTypeBrush : InferredTypeBrush;
 

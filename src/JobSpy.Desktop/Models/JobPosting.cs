@@ -67,6 +67,12 @@ public sealed class JobPosting
     [BsonField("enrichedType")]
     public string? EnrichedType { get; set; }
 
+    [BsonField("enrichedLocation")]
+    public string? EnrichedLocation { get; set; }
+
+    [BsonField("enrichedWorkPattern")]
+    public string? EnrichedWorkPattern { get; set; }
+
     [BsonField("enrichmentVersion")]
     public int EnrichmentVersion { get; set; }
 
@@ -102,6 +108,17 @@ public sealed class JobPosting
 
     [BsonIgnore]
     public string EffectiveJobType => !string.IsNullOrWhiteSpace(JobType) ? JobType : EnrichedType ?? string.Empty;
+
+    [BsonIgnore]
+    public string EffectiveLocation => !string.IsNullOrWhiteSpace(Location) ? Location : EnrichedLocation ?? string.Empty;
+
+    [BsonIgnore]
+    public string? EffectiveWorkPattern => !string.IsNullOrWhiteSpace(EnrichedWorkPattern)
+        ? EnrichedWorkPattern
+        : IsRemote ? "remote" : null;
+
+    [BsonIgnore]
+    public string WorkPatternLabel => Services.JobPostingEnricher.FormatWorkPattern(EffectiveWorkPattern) ?? "Not listed";
 
     [BsonIgnore]
     public string EmploymentLabel => IsRemote ? "Remote" : EffectiveJobType;

@@ -388,6 +388,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             this.RaisePropertyChanged(nameof(SelectedJobCompany));
             this.RaisePropertyChanged(nameof(SelectedJobSalaryLabel));
             this.RaisePropertyChanged(nameof(SelectedJobLocation));
+            this.RaisePropertyChanged(nameof(SelectedJobWorkPatternLabel));
             this.RaisePropertyChanged(nameof(SelectedJobSiteLabel));
             this.RaisePropertyChanged(nameof(SelectedJobDatePostedLabel));
             this.RaisePropertyChanged(nameof(SelectedJobTrackedSinceLabel));
@@ -404,7 +405,9 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public string SelectedJobSalaryLabel => SelectedJob?.SalaryLabel ?? string.Empty;
 
-    public string SelectedJobLocation => SelectedJob?.Location ?? string.Empty;
+    public string SelectedJobLocation => SelectedJob?.Posting.EffectiveLocation ?? string.Empty;
+
+    public string SelectedJobWorkPatternLabel => SelectedJob?.Posting.WorkPatternLabel ?? string.Empty;
 
     public string SelectedJobSiteLabel => SelectedJob?.SiteLabel ?? string.Empty;
 
@@ -1089,11 +1092,12 @@ public sealed class MainWindowViewModel : ViewModelBase
     }
 
     private static bool IsRemotePosting(JobPosting posting) => posting.IsRemote
-        || posting.Location?.Contains("remote", StringComparison.OrdinalIgnoreCase) == true;
+        || string.Equals(posting.EffectiveWorkPattern, "remote", StringComparison.OrdinalIgnoreCase)
+        || posting.EffectiveLocation.Contains("remote", StringComparison.OrdinalIgnoreCase);
 
     private static string GetLocationKey(JobPosting posting)
     {
-        var location = posting.Location?.Trim();
+        var location = posting.EffectiveLocation.Trim();
         if (string.IsNullOrWhiteSpace(location))
         {
             return string.Empty;

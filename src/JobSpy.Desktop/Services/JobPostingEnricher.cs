@@ -8,7 +8,7 @@ namespace JobSpy.Desktop.Services;
 
 public static class JobPostingEnricher
 {
-    public const int CurrentVersion = 6;
+    public const int CurrentVersion = 7;
 
     private const string CurrencyPattern = @"£|€|\$|GBP\b|USD\b|EUR\b";
     private const string AmountPattern = @"(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{4,6}(?:\.\d+)?|\d{2,3}(?:\.\d+)?)";
@@ -38,10 +38,21 @@ public static class JobPostingEnricher
     private static readonly Regex FixedTermPattern = new(
         @"\b(?:FTC|fixed[- ]term(?:\s+contract)?)\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex FortyHourWeekPattern = new(
+        @"\b40\s*(?:hours?|hrs?|h)\s*(?:(?:per|a)\s+|/\s*)week\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex LimitedDurationPattern = new(
+        @"\b(?:contract(?:or)?|FTC|fixed[- ]term|temporary|freelance|intern(?:ship)?|seasonal|limited[- ]duration|\d+\s*(?:months?|years?))\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex HybridWorkPatternRegex = new(
+        @"^hybrid\s*(?::|\(\s*|\s+)?(?<days>\d+(?:\.\d+)?)\s*(?:days?(?:\s*(?:/|per)\s*week)?|d\s*/\s*w(?:eek)?)?\s*\)?$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     public static void Enrich(JobPosting posting)
     {
         posting.EnrichedType = ExtractType(posting.Title, posting.Description);
+        posting.EnrichedLocation = null;
+        posting.EnrichedWorkPattern = posting.IsRemote ? "remote" : null;
         posting.EnrichedSalary = ExtractSalary(posting.Title, posting.Description);
         var salaryDetails = ParseSalary(posting.EnrichedSalary, posting.EffectiveJobType);
         posting.EnrichedSalaryMinAmount = salaryDetails?.MinAmount;
@@ -51,25 +62,39 @@ public static class JobPostingEnricher
         posting.EnrichmentVersion = CurrentVersion;
     }
 
-    public static bool ApplyAiCorrection(JobPosting posting, string? employmentType, string? salary)
+    public static bool ApplyAiCorrection(
+        JobPosting posting,
+        string? employmentType,
+        string? location,
+        string? salary,
+        string? workPattern)
     {
         var changed = false;
         if (string.IsNullOrWhiteSpace(posting.JobType))
         {
             var normalizedType = ParseType(employmentType);
-            if (normalizedType != posting.EnrichedType)
+            if (normalizedType is not null && normalizedType != posting.EnrichedType)
             {
                 posting.EnrichedType = normalizedType;
                 changed = true;
             }
         }
 
+        if (string.IsNullOrWhiteSpace(posting.Location))
+        {
+            var normalizedLocation = NormalizeAiLocation(location);
+            if (normalizedLocation is not null && normalizedLocation != posting.EnrichedLocation)
+            {
+                posting.EnrichedLocation = normalizedLocation;
+                changed = true;
+            }
+        }
+
         if (!posting.MinAmount.HasValue && !posting.MaxAmount.HasValue)
         {
-            var normalizedSalary = string.IsNullOrWhiteSpace(salary) ? null : Normalize(salary);
+            var normalizedSalary = NormalizeAiSalary(salary);
             var salaryDetails = ParseSalary(normalizedSalary, posting.EffectiveJobType);
-            if ((normalizedSalary is null || salaryDetails is not null)
-                && normalizedSalary != posting.EnrichedSalary)
+            if (normalizedSalary is not null && salaryDetails is not null && normalizedSalary != posting.EnrichedSalary)
             {
                 posting.EnrichedSalary = normalizedSalary;
                 posting.EnrichedSalaryMinAmount = salaryDetails?.MinAmount;
@@ -80,12 +105,136 @@ public static class JobPostingEnricher
             }
         }
 
+        if (!posting.IsRemote)
+        {
+            var normalizedWorkPattern = NormalizeAiWorkPattern(workPattern);
+            if (normalizedWorkPattern is not null && normalizedWorkPattern != posting.EnrichedWorkPattern)
+            {
+                posting.EnrichedWorkPattern = normalizedWorkPattern;
+                changed = true;
+            }
+        }
+
         if (changed)
         {
             posting.AiCorrected = true;
         }
 
         return changed;
+    }
+
+    internal static bool IsValidAiEmploymentType(string? value) =>
+        string.IsNullOrWhiteSpace(value) || ParseType(value) is not null;
+
+    internal static string? NormalizeAiEmploymentType(string? value) => ParseType(value);
+
+    internal static bool HasAiEmploymentEvidence(JobPosting posting)
+    {
+        var title = posting.Title ?? string.Empty;
+        var description = posting.Description ?? string.Empty;
+        return ParseType(title) is not null
+            || ExplicitTypePattern.IsMatch(description)
+            || FixedTermPattern.IsMatch(description)
+            || RoleTypePattern.IsMatch(description)
+            || Regex.IsMatch(description, @"\b(?:full[- ]time|part[- ]time|permanent|temporary|freelance)\b",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            || FortyHourWeekPattern.IsMatch($"{title}\n{description}");
+    }
+
+    internal static bool RequiresPermanentClassification(JobPosting posting)
+    {
+        var source = $"{posting.Title}\n{posting.Description}";
+        return FortyHourWeekPattern.IsMatch(source) && !LimitedDurationPattern.IsMatch(source);
+    }
+
+    internal static bool HasAiSalaryEvidence(JobPosting posting) =>
+        ExtractSalary(posting.Title, posting.Description) is not null;
+
+    internal static bool IsValidAiLocation(string? value) =>
+        string.IsNullOrWhiteSpace(value) || NormalizeAiLocation(value) is not null;
+
+    internal static bool IsValidAiSalary(string? value) =>
+        string.IsNullOrWhiteSpace(value) || ParseSalary(NormalizeAiSalary(value), null) is not null;
+
+    internal static bool IsValidAiWorkPattern(string? value) =>
+        string.IsNullOrWhiteSpace(value) || NormalizeAiWorkPattern(value) is not null;
+
+    internal static string? NormalizeAiLocation(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var normalized = Normalize(value);
+        return normalized.Length <= 200 && !normalized.Any(char.IsControl) ? normalized : null;
+    }
+
+    internal static string? NormalizeAiSalary(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : Normalize(value);
+
+    internal static string? NormalizeAiWorkPattern(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var normalized = value.Trim().ToLowerInvariant().Replace('-', ' ');
+        if (normalized is "remote" or "fully remote" or "remote only" or "work from home" or "wfh")
+        {
+            return "remote";
+        }
+
+        if (normalized is "onsite" or "on site" or "on premises" or "in office" or "office based")
+        {
+            return "onsite";
+        }
+
+        if (normalized == "hybrid")
+        {
+            return "hybrid";
+        }
+
+        var hybridMatch = HybridWorkPatternRegex.Match(value.Trim());
+        if (hybridMatch.Success
+            && decimal.TryParse(hybridMatch.Groups["days"].Value, NumberStyles.AllowDecimalPoint,
+                CultureInfo.InvariantCulture, out var daysPerWeek)
+            && daysPerWeek > 0
+            && daysPerWeek <= 7)
+        {
+            return $"hybrid:{daysPerWeek.ToString("0.###", CultureInfo.InvariantCulture)}";
+        }
+
+        return null;
+    }
+
+    public static string? FormatWorkPattern(string? value)
+    {
+        var normalized = NormalizeAiWorkPattern(value);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        if (normalized == "remote")
+        {
+            return "Remote";
+        }
+
+        if (normalized == "onsite")
+        {
+            return "On-site";
+        }
+
+        if (normalized == "hybrid")
+        {
+            return "Hybrid (days/week not stated)";
+        }
+
+        var daysPerWeek = decimal.Parse(normalized[("hybrid:".Length)..], CultureInfo.InvariantCulture);
+        var dayLabel = daysPerWeek == 1 ? "day" : "days";
+        return $"Hybrid ({daysPerWeek.ToString("0.###", CultureInfo.InvariantCulture)} {dayLabel}/week)";
     }
 
     private static SalaryDetails? ParseSalary(string? salary, string? jobType)

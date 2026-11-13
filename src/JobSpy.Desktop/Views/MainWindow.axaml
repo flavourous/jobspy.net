@@ -260,7 +260,12 @@
                 </Grid>
             </Border>
 
-            <Grid Grid.Row="2" ColumnDefinitions="1.05*,1.4*" ColumnSpacing="12">
+            <Grid Grid.Row="2" ColumnSpacing="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="1.05*" MinWidth="300" />
+                    <ColumnDefinition Width="8" />
+                    <ColumnDefinition Width="1.4*" MinWidth="300" />
+                </Grid.ColumnDefinitions>
                 <Border Background="White" BorderBrush="#DEE5DF" BorderThickness="1">
                     <Grid RowDefinitions="Auto,*">
                         <Border Padding="8,7" BorderBrush="#E4E9E5" BorderThickness="0,0,0,1" Background="#F8FAF8">
@@ -270,13 +275,15 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="84" />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="ROLE" FontSize="10" FontWeight="Bold" Foreground="#718078" />
                                 <TextBlock Grid.Column="1" Text="COMPANY" FontSize="10" FontWeight="Bold" Foreground="#718078" />
                                 <TextBlock Grid.Column="2" Text="TYPE" FontSize="10" FontWeight="Bold" Foreground="#718078" />
-                                <TextBlock Grid.Column="3" Text="SALARY" FontSize="10" FontWeight="Bold" Foreground="#718078" />
-                                <TextBlock Grid.Column="4" Text="STATUS" FontSize="10" FontWeight="Bold"
+                                <TextBlock Grid.Column="3" Text="PATTERN" FontSize="10" FontWeight="Bold" Foreground="#718078" />
+                                <TextBlock Grid.Column="4" Text="SALARY" FontSize="10" FontWeight="Bold" Foreground="#718078" />
+                                <TextBlock Grid.Column="5" Text="STATUS" FontSize="10" FontWeight="Bold"
                                            Foreground="#718078" HorizontalAlignment="Right" TextAlignment="Right" />
                             </Grid>
                         </Border>
@@ -336,6 +343,7 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="84" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold"
@@ -345,9 +353,11 @@
                                             <TextBlock Grid.Column="2" Text="{Binding EmploymentTypeLabel}" FontSize="10"
                                                        Foreground="{Binding EmploymentTypeForeground}"
                                                        TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                            <TextBlock Grid.Column="3" Text="{Binding SalaryLabel}" FontSize="10" FontWeight="SemiBold"
+                                            <TextBlock Grid.Column="3" Text="{Binding WorkPatternLabel}" FontSize="10"
+                                                       Foreground="#52615A" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="4" Text="{Binding SalaryLabel}" FontSize="10" FontWeight="SemiBold"
                                                        Foreground="#16775C" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                            <TextBlock Grid.Column="4" Width="84" Text="{Binding StatusLabel}"
+                                            <TextBlock Grid.Column="5" Width="84" Text="{Binding StatusLabel}"
                                                        FontSize="10" Foreground="#52615A"
                                                        HorizontalAlignment="Right" TextAlignment="Right"
                                                        VerticalAlignment="Center"
@@ -364,7 +374,11 @@
                     </Grid>
                 </Border>
 
-                <Border Grid.Column="1" Background="White" BorderBrush="#DEE5DF" BorderThickness="1" Padding="16">
+                <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Stretch"
+                              ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"
+                              Background="#DDE5DF" ToolTip.Tip="Drag to resize list and details" />
+
+                <Border Grid.Column="2" Background="White" BorderBrush="#DEE5DF" BorderThickness="1" Padding="16">
                     <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="7">
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                             <StackPanel Spacing="3">
@@ -385,6 +399,7 @@
                         <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12">
                             <TextBlock Text="{Binding SelectedJobSalaryLabel}" FontSize="13" FontWeight="SemiBold" Foreground="#16775C" />
                             <TextBlock Text="{Binding SelectedJobLocation}" FontSize="12" Foreground="#52615A" />
+                            <TextBlock Text="{Binding SelectedJobWorkPatternLabel}" FontSize="12" Foreground="#52615A" />
                             <TextBlock Text="{Binding SelectedJobSiteLabel}" FontSize="11" Foreground="#718078" />
                         </StackPanel>
                         <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="14">

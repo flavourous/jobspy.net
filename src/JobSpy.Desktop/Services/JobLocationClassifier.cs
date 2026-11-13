@@ -65,7 +65,7 @@ public static class JobLocationClassifier
             return knownResult;
         }
 
-        var location = posting.Location?.Trim();
+        var location = posting.EffectiveLocation.Trim();
         if (string.IsNullOrWhiteSpace(location))
         {
             return null;
@@ -85,8 +85,9 @@ public static class JobLocationClassifier
 
     private static bool? TryGetNeedsRelocation(JobPosting posting)
     {
-        var location = posting.Location?.Trim();
+        var location = posting.EffectiveLocation.Trim();
         if (posting.IsRemote
+            || string.Equals(posting.EffectiveWorkPattern, "remote", StringComparison.OrdinalIgnoreCase)
             || string.IsNullOrWhiteSpace(location)
             || location.Contains("remote", StringComparison.OrdinalIgnoreCase))
         {
